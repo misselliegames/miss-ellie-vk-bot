@@ -59,6 +59,7 @@ def blank_session():
         "question_index": 0,
         "emeralds": 0,
         "answers": [],
+        "option_orders": {},
         "shop_index": 0,
         "shop_selected": {},
         "shop_balance": 0,
@@ -102,11 +103,11 @@ def upload_photo(path: Path):
     return attachment
 
 
-def question_text(q):
+def question_text(q, options):
     letters = ["A", "B", "C"]
-    opts = "\n".join(f"{letters[i]}. {opt['text']}" for i, opt in enumerate(q["options"]))
+    opts = "\n".join(f"{letters[i]}. {opt['text']}" for i, opt in enumerate(options))
     hint = f"{q['scene_hint']}\n\n" if q.get("scene_hint") else ""
-    translation = f"\n{q['translation']}" if q.get("translation") else ""
+    translation = f"\n{q['translation']}" if q["id"] in (1, 2) and q.get("translation") else ""
     return f"Задание {q['id']}/20\n\n{hint}{q['question']}{translation}\n\n{opts}"
 
 
@@ -116,11 +117,16 @@ def send_question(user_id):
         start_shop(user_id)
         return
     q = QUESTIONS[s["question_index"]]
+    if q["id"] not in s["option_orders"]:
+        order = list(range(len(q["options"])))
+        random.shuffle(order)
+        s["option_orders"][q["id"]] = order
+    options = [q["options"][i] for i in s["option_orders"][q["id"]]]
     if q.get("world_intro"):
         send(user_id, q["world_intro"])
     img_path = QUESTION_ASSETS / q["image"]
     attachment = upload_photo(img_path) if img_path.exists() else None
-    send(user_id, question_text(q), keyboard=answer_keyboard(), attachment=attachment)
+    send(user_id, question_text(q, options), keyboard=answer_keyboard(), attachment=attachment)
     s["stage"] = "question"
 
 
@@ -132,7 +138,8 @@ def handle_answer(user_id, text):
     if choice is None:
         send(user_id, "Выбери ответ кнопкой A, B или C 🙂", keyboard=answer_keyboard())
         return
-    opt = q["options"][choice]
+    option_index = s["option_orders"][q["id"]][choice]
+    opt = q["options"][option_index]
     correct = bool(opt.get("correct"))
     earned = 2 if correct else 1
     s["emeralds"] += earned

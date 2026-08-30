@@ -7,7 +7,7 @@ QUESTIONS = [
         "image": "01_eastern_market_doll_five.jpg",
         "question": "How much is the doll?",
         "translation": "Сколько стоит кукла?",
-        "scene_hint": "💭 The seller thinks: five",
+        "scene_hint": "The doll is five dollars.",
         "options": [
             {"text": "7", "correct": False, "error": "NUM_RECOGNITION", "meaning": "путает написанное числительное five"},
             {"text": "5", "correct": True},
