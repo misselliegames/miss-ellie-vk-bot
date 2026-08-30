@@ -389,7 +389,7 @@ def build_summary(s):
         "emeralds": s["emeralds"],
         "topics": topics,
         "answers": answers,
-        "limitations": "Выбор ответа; не проверялись полноценно speaking, listening и самостоятельное построение фраз.",
+        "limitations": "Выбор ответа; не проверялись полноценно устная речь, понимание речи на слух и самостоятельное построение фраз.",
     }
 
 
@@ -398,16 +398,9 @@ def send_parent_report(user_id):
     summary = build_summary(s)
     send(user_id, "Здравствуйте! Это Элли. Сейчас я соберу результаты по всем 20 заданиям — это займёт несколько секунд.")
     report = generate_parent_report(user_id, summary)
-    send(user_id, report)
-    send(user_id, "Если хотите, можно проверить эти навыки уже в живой речи и игровых заданиях 😊")
-    emerald_word = decline_emeralds(s["emeralds"])
-    contact_text = (
-        f"Здравствуйте! Мой ребёнок прошёл ваш тест и заработал {s['emeralds']} {emerald_word} 😊 "
-        "Хочу записать ребёнка к вам на пробный урок."
-    )
     send(
         user_id,
-        "Скопируйте готовый текст обращения:\n\n" + contact_text,
+        report,
         keyboard=openlink_button("Записаться на пробный урок", "https://vk.me/ellie_englie"),
     )
     s["stage"] = "done"
@@ -477,11 +470,35 @@ def send_handoff(user_id):
 
 def child_intro(user_id):
     s = SESSIONS[user_id]
-    attachment = None
+    s["stage"] = "child_intro_retry"
     try:
         attachment = upload_photo(TOTOSHKA_INTRO)
     except Exception as exc:
-        print(f"TOTOSHKA_UPLOAD_FAILED: {type(exc).__name__}")
+        print(f"TOTOSHKA_PNG_UPLOAD_FAILED: {type(exc).__name__}")
+        temp_jpg = GENERATED_DIR / f"totoshka_{uuid.uuid4().hex}.jpg"
+        try:
+            GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+            with Image.open(TOTOSHKA_INTRO) as source:
+                source.load()
+                if source.mode in {"RGBA", "LA"} or "transparency" in source.info:
+                    rgba = source.convert("RGBA")
+                    rgb = Image.new("RGB", rgba.size, "white")
+                    rgb.paste(rgba, mask=rgba.getchannel("A"))
+                else:
+                    rgb = source.convert("RGB")
+                rgb.save(temp_jpg, "JPEG", quality=92, optimize=True)
+            attachment = upload_photo(temp_jpg)
+        except Exception as fallback_exc:
+            print(f"TOTOSHKA_JPG_UPLOAD_FAILED: {type(fallback_exc).__name__}")
+            send(
+                user_id,
+                "🐾 Тотошка на секунду потерялся! Нажми «Попробовать ещё раз».",
+                keyboard=one_button("Попробовать ещё раз", VkKeyboardColor.PRIMARY),
+            )
+            return
+        finally:
+            if temp_jpg.exists():
+                temp_jpg.unlink()
     send(user_id,
          "Привет! 🐾\n\n"
          "Злая колдунья заколдовала дорогу из жёлтых кирпичей, и Тотошка не может найти дорогу в Изумрудный Город к Элли.\n\n"
@@ -550,6 +567,8 @@ def on_message(user_id, text):
             send_instruction(user_id)
     elif stage == "await_handoff":
         child_intro(user_id)
+    elif stage == "child_intro_retry":
+        child_intro(user_id)
     elif stage == "await_go":
         s["question_index"] = 0
         send_question(user_id)
@@ -582,11 +601,15 @@ def validate_assets():
         path = SHOP_ASSETS / name
         if not path.exists():
             missing.append(str(path.relative_to(BASE_DIR)))
+    if not TOTOSHKA_INTRO.exists():
+        missing.append(str(TOTOSHKA_INTRO.relative_to(BASE_DIR)))
     if missing:
         raise RuntimeError("Missing asset files: " + ", ".join(missing))
-    if TOTOSHKA_INTRO.exists():
+    try:
         with Image.open(TOTOSHKA_INTRO) as image:
             image.verify()
+    except Exception as exc:
+        raise RuntimeError("Invalid asset file: assets/TOTO.png") from exc
 
 
 def main():
