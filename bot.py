@@ -427,9 +427,12 @@ def resolve_ellie_vk_id():
     if ELLIE_VK_ID is not None:
         return ELLIE_VK_ID
     result = retry_call(lambda: vk.utils.resolveScreenName(screen_name=ELLIE_SCREEN_NAME))
-    if not isinstance(result, list) or not result:
+    if isinstance(result, dict):
+        profile = result
+    elif isinstance(result, list) and result:
+        profile = result[0]
+    else:
         raise RuntimeError("Could not resolve Ellie VK profile")
-    profile = result[0]
     if profile.get("type") != "user" or not profile.get("object_id"):
         raise RuntimeError("Ellie screen name does not resolve to a personal VK profile")
     ELLIE_VK_ID = int(profile["object_id"])
