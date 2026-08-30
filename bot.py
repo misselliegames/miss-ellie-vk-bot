@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import os
+import csv
 import random
+import time
+import uuid
 from pathlib import Path
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
@@ -18,6 +22,21 @@ BASE_DIR = Path(__file__).resolve().parent
 QUESTION_ASSETS = BASE_DIR / "assets" / "questions"
 SHOP_ASSETS = BASE_DIR / "assets" / "shop"
 GENERATED_DIR = BASE_DIR / "generated"
+TOTOSHKA_INTRO = BASE_DIR / "assets" / "TOTO.png"
+
+POLICY_URL = "https://disk.yandex.ru/i/CmjPe-bGH87wsA"
+PD_CONSENT_URL = "https://disk.yandex.ru/i/TORpX__fuJmnxQ"
+MARKETING_CONSENT_URL = "https://disk.yandex.ru/i/_9vaNdyTI0nFRA"
+SUBSCRIBERS_CSV_PATH = Path(os.getenv("SUBSCRIBERS_CSV_PATH", "").strip() or "data/subscribers.csv")
+if not SUBSCRIBERS_CSV_PATH.is_absolute():
+    SUBSCRIBERS_CSV_PATH = BASE_DIR / SUBSCRIBERS_CSV_PATH
+
+SUBSCRIBER_FIELDS = [
+    "vk_id", "pd_consent", "pd_consent_at", "marketing_consent",
+    "marketing_consent_at", "marketing_revoked_at", "class", "emeralds",
+    "completed_at", "policy_url", "pd_consent_url", "marketing_consent_url",
+]
+START_COMMANDS = {"начать", "начать тест", "тест", "пройти тест", "старт", "/start", "заново"}
 
 VK_TOKEN = (os.getenv("VK_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
 VK_GROUP_ID = (os.getenv("VK_GROUP_ID") or os.getenv("GROUP_ID") or "").strip()
@@ -55,15 +74,29 @@ TOPIC_NAMES = {q["topic"]: q["topic_ru"] for q in QUESTIONS}
 
 def blank_session():
     return {
-        "stage": "await_parent_start",
+        "stage": "await_pd_consent",
         "question_index": 0,
         "emeralds": 0,
         "answers": [],
         "option_orders": {},
+        "world_intros_sent": set(),
+        "class": "",
         "shop_index": 0,
         "shop_selected": {},
         "shop_balance": 0,
     }
+
+
+def retry_call(action, attempts=3):
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            return action()
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(0.6 * (attempt + 1))
+    raise last_error
 
 
 def send(user_id, text, keyboard=None, attachment=None):
@@ -76,12 +109,26 @@ def send(user_id, text, keyboard=None, attachment=None):
         params["keyboard"] = keyboard.get_keyboard()
     if attachment:
         params["attachment"] = attachment
-    vk.messages.send(**params)
+    return retry_call(lambda: vk.messages.send(**params))
 
 
 def one_button(label, color=VkKeyboardColor.PRIMARY):
     kb = VkKeyboard(one_time=True)
     kb.add_button(label, color=color)
+    return kb
+
+
+def two_buttons(first_label, second_label):
+    kb = VkKeyboard(one_time=True)
+    kb.add_button(first_label, color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button(second_label, color=VkKeyboardColor.SECONDARY)
+    return kb
+
+
+def openlink_button(label, link):
+    kb = VkKeyboard(one_time=False)
+    kb.add_openlink_button(label, link)
     return kb
 
 
@@ -97,10 +144,51 @@ def upload_photo(path: Path):
     key = str(path.resolve())
     if key in PHOTO_CACHE:
         return PHOTO_CACHE[key]
-    photo = upload.photo_messages(photos=str(path))[0]
+    photo = retry_call(lambda: upload.photo_messages(photos=str(path)))[0]
     attachment = f"photo{photo['owner_id']}_{photo['id']}"
     PHOTO_CACHE[key] = attachment
     return attachment
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def update_subscriber(user_id, **updates):
+    path = SUBSCRIBERS_CSV_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    records = {}
+    if path.exists():
+        with path.open("r", encoding="utf-8-sig", newline="") as source:
+            for row in csv.DictReader(source):
+                if row.get("vk_id"):
+                    records[row["vk_id"]] = {field: row.get(field, "") for field in SUBSCRIBER_FIELDS}
+
+    key = str(user_id)
+    record = records.get(key, {field: "" for field in SUBSCRIBER_FIELDS})
+    record.update({
+        "vk_id": key,
+        "policy_url": POLICY_URL,
+        "pd_consent_url": PD_CONSENT_URL,
+        "marketing_consent_url": MARKETING_CONSENT_URL,
+    })
+    for field, value in updates.items():
+        if field in SUBSCRIBER_FIELDS:
+            if isinstance(value, bool):
+                value = "true" if value else "false"
+            record[field] = str(value)
+    records[key] = record
+
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8-sig", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=SUBSCRIBER_FIELDS)
+            writer.writeheader()
+            writer.writerows(records.values())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def question_text(q, options):
@@ -122,12 +210,23 @@ def send_question(user_id):
         random.shuffle(order)
         s["option_orders"][q["id"]] = order
     options = [q["options"][i] for i in s["option_orders"][q["id"]]]
-    if q.get("world_intro"):
-        send(user_id, q["world_intro"])
-    img_path = QUESTION_ASSETS / q["image"]
-    attachment = upload_photo(img_path) if img_path.exists() else None
-    send(user_id, question_text(q, options), keyboard=answer_keyboard(), attachment=attachment)
-    s["stage"] = "question"
+    s["stage"] = "sending_question"
+    try:
+        if q.get("world_intro") and q["id"] not in s["world_intros_sent"]:
+            send(user_id, q["world_intro"])
+            s["world_intros_sent"].add(q["id"])
+        img_path = QUESTION_ASSETS / q["image"]
+        attachment = upload_photo(img_path) if img_path.exists() else None
+        send(user_id, question_text(q, options), keyboard=answer_keyboard(), attachment=attachment)
+        s["stage"] = "question"
+    except Exception as exc:
+        print(f"QUESTION_SEND_RETRY: {type(exc).__name__}")
+        s["stage"] = "question_retry"
+        send(
+            user_id,
+            "🐾 Тотошка опять зацепил провод! Но изумруды на месте 😅 Нажми «Продолжить», и попробуем ещё раз.",
+            keyboard=one_button("Продолжить", VkKeyboardColor.PRIMARY),
+        )
 
 
 def handle_answer(user_id, text):
@@ -140,14 +239,18 @@ def handle_answer(user_id, text):
         return
     option_index = s["option_orders"][q["id"]][choice]
     opt = q["options"][option_index]
+    correct_opt = next(item for item in q["options"] if item.get("correct"))
     correct = bool(opt.get("correct"))
     earned = 2 if correct else 1
     s["emeralds"] += earned
     s["answers"].append({
         "question_id": q["id"],
         "topic": q["topic"],
+        "topic_ru": q["topic_ru"],
+        "question": q["question"],
         "selected": choice,
         "selected_text": opt["text"],
+        "correct_text": correct_opt["text"],
         "correct": correct,
         "emeralds": earned,
         "error": opt.get("error"),
@@ -165,8 +268,12 @@ def handle_answer(user_id, text):
             "🐾 Не угадали, но смелость считается! Держи 1 💎.",
             "🐾 Ничего страшного — один изумруд за храбрость твой! 💎",
         ])
-    send(user_id, f"{reply}\nСейчас у тебя: {s['emeralds']} 💎")
     s["question_index"] += 1
+    s["stage"] = "question_transition"
+    try:
+        send(user_id, f"{reply}\nСейчас у тебя: {s['emeralds']} 💎")
+    except Exception as exc:
+        print(f"ANSWER_FEEDBACK_SEND_FAILED: {type(exc).__name__}")
     send_question(user_id)
 
 
@@ -222,7 +329,8 @@ def handle_shop_choice(user_id, text):
 
 def finish_shop(user_id):
     s = SESSIONS[user_id]
-    out = GENERATED_DIR / f"shop_{user_id}.png"
+    s["stage"] = "shop_finishing"
+    out = GENERATED_DIR / f"shop_{uuid.uuid4().hex}.png"
     try:
         compose_shop_scene(SHOP_ASSETS, s["shop_selected"], out)
         attachment = upload_photo(out)
@@ -231,6 +339,17 @@ def finish_shop(user_id):
         send(user_id, f"🏡 Готово! Вот что ты собрал(а).{tail}", attachment=attachment)
     except Exception:
         send(user_id, "🏡 Готово! Твой участок собран. Картинку магазина подключим после загрузки всех PNG.")
+    finally:
+        if out.exists():
+            out.unlink()
+    update_subscriber(
+        user_id,
+        **{
+            "class": s.get("class", "1-2"),
+            "emeralds": s["emeralds"],
+            "completed_at": utc_now(),
+        },
+    )
     send(user_id, "🐾 А теперь позови маму или папу и передай телефон. Я подготовил результат диагностики.", keyboard=one_button("Родитель здесь", VkKeyboardColor.PRIMARY))
     s["stage"] = "await_parent"
 
@@ -250,9 +369,18 @@ def build_summary(s):
             "max": 2,
             "status": "mastered" if score == 2 else "partial" if score == 1 else "needs_work",
         })
-    errors = [
-        {"question_id": a["question_id"], "topic": a["topic"], "meaning": a["meaning"]}
-        for a in s["answers"] if not a["correct"] and a.get("meaning")
+    answers = [
+        {
+            "question_id": a["question_id"],
+            "topic": a["topic"],
+            "topic_ru": a["topic_ru"],
+            "question": a["question"],
+            "selected_text": a["selected_text"],
+            "correct_text": a["correct_text"],
+            "correct": a["correct"],
+            "meaning": a.get("meaning") if not a["correct"] else None,
+        }
+        for a in s["answers"]
     ]
     return {
         "route": "Pre-A1 / Starters / 1–2 класс",
@@ -260,7 +388,7 @@ def build_summary(s):
         "total_questions": 20,
         "emeralds": s["emeralds"],
         "topics": topics,
-        "errors": errors,
+        "answers": answers,
         "limitations": "Выбор ответа; не проверялись полноценно speaking, listening и самостоятельное построение фраз.",
     }
 
@@ -271,52 +399,171 @@ def send_parent_report(user_id):
     send(user_id, "Здравствуйте! Это Элли. Сейчас я соберу результаты по всем 20 заданиям — это займёт несколько секунд.")
     report = generate_parent_report(user_id, summary)
     send(user_id, report)
-    send(user_id, "Если захотите, следующим шагом можно проверить эти же темы уже без готовых вариантов ответа — в речи и небольших игровых заданиях.")
+    send(user_id, "Если хотите, можно проверить эти навыки уже в живой речи и игровых заданиях 😊")
+    emerald_word = decline_emeralds(s["emeralds"])
+    contact_text = (
+        f"Здравствуйте! Мой ребёнок прошёл ваш тест и заработал {s['emeralds']} {emerald_word} 😊 "
+        "Хочу записать ребёнка к вам на пробный урок."
+    )
+    send(
+        user_id,
+        "Скопируйте готовый текст обращения:\n\n" + contact_text,
+        keyboard=openlink_button("Записаться на пробный урок", "https://vk.me/ellie_englie"),
+    )
     s["stage"] = "done"
+
+
+def decline_emeralds(number):
+    last_two = number % 100
+    if 11 <= last_two <= 14:
+        return "изумрудов"
+    last = number % 10
+    if last == 1:
+        return "изумруд"
+    if 2 <= last <= 4:
+        return "изумруда"
+    return "изумрудов"
 
 
 def start_flow(user_id):
     SESSIONS[user_id] = blank_session()
     s = SESSIONS[user_id]
     send(user_id,
-         "Здравствуйте! Это короткая игровая диагностика английского Pre-A1 / Starters для 1–2 класса.\n\n"
-         "В ней 20 заданий. После детской части я покажу вам результат по 10 темам.\n\n"
-         "Передайте, пожалуйста, телефон ребёнку и нажмите кнопку ниже.",
-         keyboard=one_button("Телефон у ребёнка", VkKeyboardColor.POSITIVE))
-    s["stage"] = "await_child"
+         "Ура, вы добрались до ворот Изумрудного Города! 💚\n"
+         "Но даже здесь есть пара волшебных бумажек — обычная бюрократия, примерно как зелёные очки от Дин Гиора 😄\n\n"
+         "Перед началом теста нужно ваше согласие на обработку данных, необходимых для работы диагностики и подготовки результата.\n\n"
+         f"📄 Политика обработки персональных данных:\n{POLICY_URL}\n\n"
+         f"📄 Согласие на обработку персональных данных:\n{PD_CONSENT_URL}\n\n"
+         "Если всё хорошо — идём дальше 👇",
+         keyboard=two_buttons("Согласен(на), идём дальше", "Не согласен(на)"))
+    s["stage"] = "await_pd_consent"
+
+
+def send_marketing_consent(user_id):
+    send(
+        user_id,
+        "И ещё один вопрос от Стража ворот 😊\n\n"
+        "Хотите иногда получать от Miss Ellie полезные материалы, новости о занятиях и специальные предложения?\n\n"
+        "Это совершенно необязательно и никак не влияет на прохождение теста.\n\n"
+        f"📄 Согласие на получение рекламных и информационных сообщений:\n{MARKETING_CONSENT_URL}",
+        keyboard=two_buttons("Да, хочу получать", "Нет, спасибо"),
+    )
+    SESSIONS[user_id]["stage"] = "await_marketing_consent"
+
+
+def send_instruction(user_id):
+    send(
+        user_id,
+        "ПРОЧИТАЙТЕ ВНИМАТЕЛЬНО ИНСТРУКЦИЮ:\n\n"
+        "Вам нужно будет передать телефон ребёнку. Всего будет 20 вопросов. Сначала простые, потом чуть сложнее. "
+        "Объясните ребёнку, что ошибаться можно, но лучше постараться вспомнить или угадать правильный ответ. "
+        "Угадывать тоже можно — это наша языковая интуиция.\n\n"
+        "За каждый правильный ответ ребёнок получает изумруды 💎, на которые в конце может построить себе маленький уютный мир в стиле Minecraft.\n\n"
+        "После этого ребёнок вернёт вам телефон, и вы получите результаты теста.\n\n"
+        "Итак, выберите, в каком классе учится ребёнок.",
+        keyboard=one_button("1–2 класс", VkKeyboardColor.POSITIVE),
+    )
+    SESSIONS[user_id]["stage"] = "await_class"
+
+
+def send_handoff(user_id):
+    send(
+        user_id,
+        "Отлично! Дальше отдайте телефон ребёнку. Не помогайте — он справится сам 😊\n\nПередали?",
+        keyboard=one_button("Да", VkKeyboardColor.POSITIVE),
+    )
+    SESSIONS[user_id]["stage"] = "await_handoff"
 
 
 def child_intro(user_id):
     s = SESSIONS[user_id]
+    attachment = None
+    try:
+        attachment = upload_photo(TOTOSHKA_INTRO)
+    except Exception as exc:
+        print(f"TOTOSHKA_UPLOAD_FAILED: {type(exc).__name__}")
     send(user_id,
-         "🐾 Гав! Я Тотошка! Мы отправляемся в путешествие.\n\n"
-         "Будет 20 коротких заданий. За правильный ответ ты получишь 2 💎, а если ошибёшься — всё равно 1 💎 за храбрость!\n\n"
-         "В конце мы потратим изумруды и построим твой собственный участок. Готов(а)?",
-         keyboard=one_button("Поехали!", VkKeyboardColor.POSITIVE))
+         "Привет! 🐾\n\n"
+         "Злая колдунья заколдовала дорогу из жёлтых кирпичей, и Тотошка не может найти дорогу в Изумрудный Город к Элли.\n\n"
+         "Но английский язык открывает дверь в любой мир, и сейчас ты сможешь помочь Тотошке!\n\n"
+         "Правильно отвечай на вопросы, копи изумрудики 💎, и в конце доберёшься до Изумрудного Города в мире Minecraft.\n\n"
+         "Вперёд!",
+         keyboard=one_button("Вперёд!", VkKeyboardColor.POSITIVE), attachment=attachment)
     s["stage"] = "await_go"
 
 
 def on_message(user_id, text):
-    s = SESSIONS.get(user_id)
     lowered = text.strip().lower()
-    if s is None or lowered in {"начать", "start", "старт", "заново"}:
+    if lowered == "стоп":
+        update_subscriber(
+            user_id,
+            marketing_consent=False,
+            marketing_revoked_at=utc_now(),
+        )
+        send(user_id, "Готово! Рекламные сообщения отключены 💚")
+        return
+
+    s = SESSIONS.get(user_id)
+    if s is None or lowered in START_COMMANDS:
         start_flow(user_id)
         return
 
     stage = s["stage"]
-    if stage == "await_child":
+    if stage == "await_pd_consent":
+        if lowered == "согласен(на), идём дальше":
+            now = utc_now()
+            update_subscriber(user_id, pd_consent=True, pd_consent_at=now)
+            send_marketing_consent(user_id)
+        elif lowered == "не согласен(на)":
+            update_subscriber(user_id, pd_consent=False, pd_consent_at="")
+            send(user_id, "Понимаю 💚 Без согласия провести персональную диагностику не получится. Если передумаете, напишите «Начать».")
+            s["stage"] = "consent_declined"
+        else:
+            start_flow(user_id)
+    elif stage == "await_marketing_consent":
+        if lowered == "да, хочу получать":
+            update_subscriber(
+                user_id,
+                marketing_consent=True,
+                marketing_consent_at=utc_now(),
+                marketing_revoked_at="",
+            )
+            send_instruction(user_id)
+        elif lowered == "нет, спасибо":
+            update_subscriber(
+                user_id,
+                marketing_consent=False,
+                marketing_consent_at="",
+            )
+            send_instruction(user_id)
+        else:
+            send_marketing_consent(user_id)
+    elif stage == "await_class":
+        if lowered == "1–2 класс" or lowered == "1-2 класс":
+            s["class"] = "1-2"
+            update_subscriber(user_id, **{"class": "1-2"})
+            send_handoff(user_id)
+        else:
+            send_instruction(user_id)
+    elif stage == "await_handoff":
         child_intro(user_id)
     elif stage == "await_go":
         s["question_index"] = 0
         send_question(user_id)
     elif stage == "question":
         handle_answer(user_id, text)
+    elif stage in {"sending_question", "question_retry", "question_transition"}:
+        send_question(user_id)
     elif stage == "shop":
         handle_shop_choice(user_id, text)
+    elif stage == "shop_finishing":
+        finish_shop(user_id)
     elif stage == "await_parent":
         send_parent_report(user_id)
     elif stage == "done":
         send(user_id, "Диагностика завершена. Чтобы пройти её заново, напишите «Заново».")
+    elif stage == "consent_declined":
+        send(user_id, "Чтобы вернуться к диагностике, напишите «Начать».")
 
 
 def validate_assets():
@@ -334,6 +581,9 @@ def validate_assets():
             missing.append(str(path.relative_to(BASE_DIR)))
     if missing:
         raise RuntimeError("Missing asset files: " + ", ".join(missing))
+    if TOTOSHKA_INTRO.exists():
+        with Image.open(TOTOSHKA_INTRO) as image:
+            image.verify()
 
 
 def main():
@@ -350,8 +600,20 @@ def main():
         try:
             on_message(user_id, text)
         except Exception as exc:
-            print("ERROR", user_id, repr(exc))
-            send(user_id, "Кажется, Тотошка споткнулся о провод 😅 Напиши «Заново», и мы начнём ещё раз.")
+            print(f"ERROR: {type(exc).__name__}")
+            s = SESSIONS.get(user_id)
+            try:
+                if s and s.get("stage") in {"question", "sending_question", "question_retry", "question_transition"}:
+                    s["stage"] = "question_retry"
+                    send(
+                        user_id,
+                        "🐾 Тотошка опять зацепил провод! Но изумруды на месте 😅 Нажми «Продолжить», и попробуем ещё раз.",
+                        keyboard=one_button("Продолжить", VkKeyboardColor.PRIMARY),
+                    )
+                else:
+                    send(user_id, "Произошла временная ошибка. Пожалуйста, нажмите последнюю кнопку ещё раз.")
+            except Exception as send_exc:
+                print(f"ERROR_NOTICE_FAILED: {type(send_exc).__name__}")
 
 
 if __name__ == "__main__":

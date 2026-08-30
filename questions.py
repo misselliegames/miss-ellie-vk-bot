@@ -182,9 +182,9 @@ QUESTIONS = [
         "question": "What can you see?",
         "translation": "Что ты видишь?",
         "options": [
-            {"text": "There is a golden ball in the cupboard.", "correct": True},
-            {"text": "There is a golden ball on the cupboard.", "correct": False, "error": "PREPOSITION_IN_ON", "meaning": "путает in и on"},
-            {"text": "There is a golden ball under the cupboard.", "correct": False, "error": "PREPOSITION_IN_UNDER", "meaning": "путает in и under"},
+            {"text": "There is a golden Snitch in the cupboard.", "correct": True},
+            {"text": "There is a golden Snitch on the cupboard.", "correct": False, "error": "PREPOSITION_IN_ON", "meaning": "путает in и on"},
+            {"text": "There is a golden Snitch under the cupboard.", "correct": False, "error": "PREPOSITION_IN_UNDER", "meaning": "путает in и under"},
         ],
     },
     {
