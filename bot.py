@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import vk_api
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
@@ -37,6 +38,7 @@ SUBSCRIBER_FIELDS = [
     "completed_at", "policy_url", "pd_consent_url", "marketing_consent_url",
 ]
 START_COMMANDS = {"начать", "начать тест", "тест", "пройти тест", "старт", "/start", "заново"}
+ELLIE_SCREEN_NAME = "ellie_englie"
 
 VK_TOKEN = (os.getenv("VK_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
 VK_GROUP_ID = (os.getenv("VK_GROUP_ID") or os.getenv("GROUP_ID") or "").strip()
@@ -68,6 +70,7 @@ longpoll = VkBotLongPoll(vk_session, VK_GROUP_ID_INT)
 
 SESSIONS = {}
 PHOTO_CACHE = {}
+ELLIE_VK_ID = None
 
 TOPIC_NAMES = {q["topic"]: q["topic_ru"] for q in QUESTIONS}
 
@@ -401,7 +404,7 @@ def send_parent_report(user_id):
     send(
         user_id,
         report,
-        keyboard=openlink_button("Записаться на пробный урок", "https://vk.me/ellie_englie"),
+        keyboard=openlink_button("Записаться на пробный урок", build_trial_lesson_link(s["emeralds"])),
     )
     s["stage"] = "done"
 
@@ -416,6 +419,30 @@ def decline_emeralds(number):
     if 2 <= last <= 4:
         return "изумруда"
     return "изумрудов"
+
+
+def resolve_ellie_vk_id():
+    global ELLIE_VK_ID
+    if ELLIE_VK_ID is not None:
+        return ELLIE_VK_ID
+    result = retry_call(lambda: vk.utils.resolveScreenName(screen_name=ELLIE_SCREEN_NAME))
+    if not isinstance(result, list) or not result:
+        raise RuntimeError("Could not resolve Ellie VK profile")
+    profile = result[0]
+    if profile.get("type") != "user" or not profile.get("object_id"):
+        raise RuntimeError("Ellie screen name does not resolve to a personal VK profile")
+    ELLIE_VK_ID = int(profile["object_id"])
+    return ELLIE_VK_ID
+
+
+def build_trial_lesson_link(emeralds):
+    emerald_word = decline_emeralds(emeralds)
+    contact_text = (
+        f"Здравствуйте! Мой ребёнок прошёл ваш тест и заработал {emeralds} {emerald_word} 😊 "
+        "Хочу записать ребёнка к вам на пробный урок."
+    )
+    encoded_text = quote(contact_text, safe="")
+    return f"https://vk.com/write{resolve_ellie_vk_id()}?text={encoded_text}"
 
 
 def start_flow(user_id):
