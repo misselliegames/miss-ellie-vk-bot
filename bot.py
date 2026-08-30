@@ -503,9 +503,12 @@ def on_message(user_id, text):
         send(user_id, "Готово! Рекламные сообщения отключены 💚")
         return
 
-    s = SESSIONS.get(user_id)
-    if s is None or lowered in START_COMMANDS:
+    if lowered in START_COMMANDS:
         start_flow(user_id)
+        return
+
+    s = SESSIONS.get(user_id)
+    if s is None:
         return
 
     stage = s["stage"]

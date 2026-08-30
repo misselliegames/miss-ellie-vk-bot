@@ -24,9 +24,10 @@ SYSTEM_PROMPT = """Ты — Miss Ellie, опытный преподавател�
 
 
 def clean_report_text(text: str) -> str:
+    text = re.sub(r"\\+(?=[`*_#\[\]()])", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"(?m)^\s*#{1,6}\s*", "", text)
-    text = text.replace("**", "").replace("__", "")
+    text = text.replace("**", "").replace("__", "").replace("`", "")
     return text.strip()
 
 
