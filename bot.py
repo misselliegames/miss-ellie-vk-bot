@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 import vk_api
+import requests
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from PIL import Image
@@ -642,31 +643,39 @@ def validate_assets():
 def main():
     validate_assets()
     print("Miss Ellie VK bot started; assets OK")
-    for event in longpoll.listen():
-        if event.type != VkBotEventType.MESSAGE_NEW:
-            continue
-        obj = event.object.message
-        if obj.get("out"):
-            continue
-        user_id = obj["from_id"]
-        text = obj.get("text", "")
+    while True:
         try:
-            on_message(user_id, text)
-        except Exception as exc:
-            print(f"ERROR: {type(exc).__name__}")
-            s = SESSIONS.get(user_id)
-            try:
-                if s and s.get("stage") in {"question", "sending_question", "question_retry", "question_transition"}:
-                    s["stage"] = "question_retry"
-                    send(
-                        user_id,
-                        "🐾 Тотошка опять зацепил провод! Но изумруды на месте 😅 Нажми «Продолжить», и попробуем ещё раз.",
-                        keyboard=one_button("Продолжить", VkKeyboardColor.PRIMARY),
-                    )
-                else:
-                    send(user_id, "Произошла временная ошибка. Пожалуйста, нажмите последнюю кнопку ещё раз.")
-            except Exception as send_exc:
-                print(f"ERROR_NOTICE_FAILED: {type(send_exc).__name__}")
+            for event in longpoll.listen():
+                if event.type != VkBotEventType.MESSAGE_NEW:
+                    continue
+                obj = event.object.message
+                if obj.get("out"):
+                    continue
+                user_id = obj["from_id"]
+                text = obj.get("text", "")
+                try:
+                    on_message(user_id, text)
+                except Exception as exc:
+                    print(f"ERROR: {type(exc).__name__}")
+                    s = SESSIONS.get(user_id)
+                    try:
+                        if s and s.get("stage") in {"question", "sending_question", "question_retry", "question_transition"}:
+                            s["stage"] = "question_retry"
+                            send(
+                                user_id,
+                                "🐾 Тотошка опять зацепил провод! Но изумруды на месте 😅 Нажми «Продолжить», и попробуем ещё раз.",
+                                keyboard=one_button("Продолжить", VkKeyboardColor.PRIMARY),
+                            )
+                        else:
+                            send(user_id, "Произошла временная ошибка. Пожалуйста, нажмите последнюю кнопку ещё раз.")
+                    except Exception as send_exc:
+                        print(f"ERROR_NOTICE_FAILED: {type(send_exc).__name__}")
+        except requests.exceptions.ReadTimeout:
+            print("VK_LONGPOLL_TIMEOUT: reconnecting")
+            time.sleep(2)
+        except requests.exceptions.ConnectionError:
+            print("VK_LONGPOLL_CONNECTION_ERROR: reconnecting")
+            time.sleep(3)
 
 
 if __name__ == "__main__":
