@@ -402,21 +402,32 @@ def send_parent_report(user_id):
     summary = build_summary(s)
     send(user_id, "Здравствуйте! Это Элли. Сейчас я соберу результаты по всем 20 заданиям — это займёт несколько секунд.")
     report = generate_parent_report(user_id, summary)
+    send(user_id, report)
+    s["stage"] = "done"
+
+    fallback_link = "https://vk.me/ellie_englie"
     try:
         trial_link = build_trial_lesson_link(s["emeralds"])
     except Exception as exc:
         print(f"TRIAL_LINK_BUILD_FAILED: {type(exc).__name__}")
-        raise
+        trial_link = fallback_link
     try:
         send(
             user_id,
-            report,
+            "Хотите записаться на пробный урок?",
             keyboard=openlink_button("Записаться на пробный урок", trial_link),
         )
     except Exception as exc:
-        print(f"PARENT_REPORT_SEND_FAILED: {type(exc).__name__}")
-        raise
-    s["stage"] = "done"
+        print(f"TRIAL_CTA_SEND_FAILED: {type(exc).__name__}")
+        if trial_link != fallback_link:
+            try:
+                send(
+                    user_id,
+                    "Хотите записаться на пробный урок?",
+                    keyboard=openlink_button("Записаться на пробный урок", fallback_link),
+                )
+            except Exception as fallback_exc:
+                print(f"TRIAL_CTA_FALLBACK_FAILED: {type(fallback_exc).__name__}")
 
 
 def decline_emeralds(number):
