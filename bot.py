@@ -318,7 +318,7 @@ def validate_assets():
         path = QUESTION_ASSETS / q["image"]
         if not path.exists():
             missing.append(str(path.relative_to(BASE_DIR)))
-    required_shop = ["shop_background.png"]
+    required_shop = ["shop_background.jpg"]
     for category in SHOP_CATEGORIES:
         required_shop.extend(item["file"] for item in SHOP_ITEMS[category])
     for name in required_shop:
