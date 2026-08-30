@@ -402,11 +402,20 @@ def send_parent_report(user_id):
     summary = build_summary(s)
     send(user_id, "Здравствуйте! Это Элли. Сейчас я соберу результаты по всем 20 заданиям — это займёт несколько секунд.")
     report = generate_parent_report(user_id, summary)
-    send(
-        user_id,
-        report,
-        keyboard=openlink_button("Записаться на пробный урок", build_trial_lesson_link(s["emeralds"])),
-    )
+    try:
+        trial_link = build_trial_lesson_link(s["emeralds"])
+    except Exception as exc:
+        print(f"TRIAL_LINK_BUILD_FAILED: {type(exc).__name__}")
+        raise
+    try:
+        send(
+            user_id,
+            report,
+            keyboard=openlink_button("Записаться на пробный урок", trial_link),
+        )
+    except Exception as exc:
+        print(f"PARENT_REPORT_SEND_FAILED: {type(exc).__name__}")
+        raise
     s["stage"] = "done"
 
 
@@ -426,16 +435,24 @@ def resolve_ellie_vk_id():
     global ELLIE_VK_ID
     if ELLIE_VK_ID is not None:
         return ELLIE_VK_ID
-    result = retry_call(lambda: vk.utils.resolveScreenName(screen_name=ELLIE_SCREEN_NAME))
-    if isinstance(result, dict):
-        profile = result
-    elif isinstance(result, list) and result:
-        profile = result[0]
-    else:
-        raise RuntimeError("Could not resolve Ellie VK profile")
-    if profile.get("type") != "user" or not profile.get("object_id"):
-        raise RuntimeError("Ellie screen name does not resolve to a personal VK profile")
-    ELLIE_VK_ID = int(profile["object_id"])
+    try:
+        result = retry_call(lambda: vk.utils.resolveScreenName(screen_name=ELLIE_SCREEN_NAME))
+        if isinstance(result, dict):
+            profile = result
+        elif isinstance(result, list) and result:
+            profile = result[0]
+        else:
+            profile = {}
+        if profile.get("type") in {"user", "profile"} and profile.get("object_id"):
+            ELLIE_VK_ID = int(profile["object_id"])
+            return ELLIE_VK_ID
+    except Exception as exc:
+        print(f"ELLIE_RESOLVE_SCREEN_NAME_FAILED: {type(exc).__name__}")
+
+    result = retry_call(lambda: vk.users.get(user_ids=ELLIE_SCREEN_NAME))
+    if not isinstance(result, list) or not result or not result[0].get("id"):
+        raise RuntimeError("Could not resolve Ellie personal VK profile")
+    ELLIE_VK_ID = int(result[0]["id"])
     return ELLIE_VK_ID
 
 
