@@ -40,6 +40,7 @@ def build_summary(session):
             "selected_text": answer["selected_text"],
             "correct_text": answer["correct_text"],
             "correct": answer["correct"],
+            "error": answer.get("error") if not answer["correct"] else None,
             "meaning": answer.get("meaning") if not answer["correct"] else None,
         }
         for answer in session["answers"]

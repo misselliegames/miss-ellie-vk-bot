@@ -32,6 +32,7 @@ def make_answers(route, mode):
             "selected_text": option["text"],
             "correct_text": correct_option["text"],
             "correct": correct,
+            "error": option.get("error"),
             "meaning": option.get("meaning"),
         })
     return answers, emeralds
@@ -77,6 +78,8 @@ class RouteDataTests(unittest.TestCase):
                     self.assertEqual(emeralds, summary["emeralds"])
                     self.assertEqual(20, summary["total_questions"])
                     self.assertEqual(20, sum(topic["max"] for topic in summary["topics"]))
+                    if mode == "incorrect":
+                        self.assertTrue(all(answer["error"] for answer in summary["answers"]))
 
 
 if __name__ == "__main__":

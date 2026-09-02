@@ -40,13 +40,17 @@ class FakeRequests(types.ModuleType):
         content = (
             "Спасибо, что нашли время пройти тест. "
             f"Мы проверили, как ребёнок усвоил материал за {facts['route_range']}. "
+            f"Диагностика рассчитана примерно на уровень {facts['target_level']}. Это предварительная оценка, "
+            "а не официальный подтверждённый уровень. "
             f"Ребёнок правильно ответил на {facts['correct_total']} из {facts['total_questions']} вопросов.\n\n"
-            f"{facts['overall_conclusion']} По результату видно: {facts['severity_label']}. "
+            f"{facts['level_conclusion']} {facts['overall_conclusion']} По результату видно: {facts['severity_label']}. "
             f"{facts['severity_explanation']}\n\n"
+            f"{facts['grammar']['message']}\n\n"
+            f"{facts['vocabulary']['message']} {facts['grammar_vocabulary_balance']}\n\n"
             f"Ребёнок пока ошибается в таких темах: {gaps}.\n\n"
             f"{foundation}\n\n"
             f"{facts['grade_context']}\n\n"
-            f"{facts['progression_outlook']}\n\n"
+            f"{facts['readiness']['message']}\n\n"
             "Это короткий тест с готовыми вариантами ответа. Чтобы точнее определить уровень, "
             "я бы ещё посмотрела, как ребёнок говорит по-английски, понимает речь на слух "
             "и сам составляет предложения."
@@ -54,16 +58,22 @@ class FakeRequests(types.ModuleType):
         return FakeResponse(content)
 
 
-def summary_for(route, wrong_question_ids=()):
+def summary_for(route, wrong_question_ids=(), wrong_error_codes=None):
     wrong_question_ids = set(wrong_question_ids)
+    wrong_error_codes = wrong_error_codes or {}
     answers = []
     emeralds = 0
     for question in QUESTION_SETS[route]:
         want_correct = question["id"] not in wrong_question_ids
-        option = next(
-            option for option in question["options"]
-            if bool(option.get("correct")) is want_correct
-        )
+        if want_correct:
+            option = next(option for option in question["options"] if option.get("correct"))
+        elif question["id"] in wrong_error_codes:
+            option = next(
+                option for option in question["options"]
+                if option.get("error") == wrong_error_codes[question["id"]]
+            )
+        else:
+            option = next(option for option in question["options"] if not option.get("correct"))
         answers.append({
             "question_id": question["id"],
             "topic": question["topic"],
@@ -75,6 +85,7 @@ def summary_for(route, wrong_question_ids=()):
                 if candidate.get("correct")
             ),
             "correct": want_correct,
+            "error": option.get("error") if not want_correct else None,
             "meaning": option.get("meaning") if not want_correct else None,
         })
         emeralds += 2 if want_correct else 1
@@ -140,7 +151,14 @@ class AiReportTests(unittest.TestCase):
         self.assertIn(expected_term, report)
         self.assertIn("Спасибо, что нашли время пройти тест", report)
         self.assertIn("Мы проверили, как ребёнок усвоил материал", report)
+        self.assertIn(self.ai_report.ROUTE_LEVELS[route], report)
+        self.assertIn("Диагностика рассчитана примерно на уровень", report)
+        self.assertIn("не официальный подтверждённый уровень", report)
+        self.assertIn("граммат", report.lower())
+        self.assertTrue("лексик" in report.lower() or "словарн" in report.lower())
+        self.assertIn("готов", facts["readiness"]["message"].lower()) if facts["readiness"]["severity"] in {"none", "small"} else None
         self.assertIn("Это короткий тест с готовыми вариантами ответа", report)
+        self.assertIn("только часть словарного запаса", report)
         self.assertIn("понимает речь на слух", report)
         self.assertIn("сам составляет предложения", report)
         self.assert_parent_safe(report)
@@ -167,6 +185,10 @@ class AiReportTests(unittest.TestCase):
                     self.assertEqual(route, data["report_facts"]["route_key"])
                     self.assertIn("severity_label", data["report_facts"])
                     self.assertIn("progression_outlook", data["report_facts"])
+                    self.assertIn("target_level", data["report_facts"])
+                    self.assertIn("grammar", data["report_facts"])
+                    self.assertIn("vocabulary", data["report_facts"])
+                    self.assertIn("readiness", data["report_facts"])
                     self.assert_parent_safe(report)
         finally:
             for name, value in previous_env.items():
@@ -256,6 +278,76 @@ class AiReportTests(unittest.TestCase):
         self.assertIn("часть тем за 6 класс он мог ещё не проходить", report)
         self.assertIn("заканчивает 6 класс", report)
 
+    def test_route_level_is_an_orientation_and_never_promotes_5_6_to_a2(self):
+        expected_levels = {"1-2": "Pre-A1", "3-4": "A1", "5-6": "A1+"}
+        for route, level in expected_levels.items():
+            facts = self.ai_report.build_report_facts(summary_for(route))
+            report = self.ai_report.fallback_report(summary_for(route))
+            with self.subTest(route=route):
+                self.assertEqual(level, facts["target_level"])
+                self.assertIn(f"уровень {level}", report)
+                self.assertIn("предварительная оценка", report)
+                self.assertIn(f"соответствуют ожидаемой базе уровня {level}", report)
+                if route == "5-6":
+                    self.assertNotRegex(report, r"\bA2\b")
+
+    def test_3_4_reports_confirmed_lexical_errors_separately_from_grammar(self):
+        lexical_choices = {
+            1: "FAMILY_DAUGHTER_HUSBAND",
+            2: "FEELINGS_APPEARANCE",
+            3: "DOLL_LAMP",
+            4: "ACTION_VOCABULARY",
+        }
+        summary = summary_for("3-4", lexical_choices, lexical_choices)
+        facts = self.ai_report.build_report_facts(summary)
+        report = self.ai_report.fallback_report(summary)
+        self.assertEqual(0, facts["grammar"]["error_count"])
+        self.assertEqual(4, facts["vocabulary"]["error_count"])
+        self.assertEqual("substantial", facts["vocabulary"]["severity"])
+        self.assertIn("семья", facts["vocabulary"]["categories"])
+        self.assertIn("одежда и повседневные действия", report)
+        self.assertIn("В заданиях на грамматику ребёнок не допустил ошибок", report)
+        self.assertIn("существенные пробелы в базовой лексике предыдущих лет", report)
+        self.assertIn("Основную грамматическую базу ребёнок усвоил", report)
+
+    def test_5_6_base_vocabulary_errors_block_readiness_for_seventh_grade(self):
+        lexical_choices = {
+            3: "TRAVEL_DRIVE_FLY",
+            4: "BY_AIR_ON_FOOT",
+            5: "CEREAL_SAUSAGES",
+            6: "CLOTHES_EQUIPMENT",
+            8: "TALLER_MEANING",
+        }
+        summary = summary_for("5-6", lexical_choices, lexical_choices)
+        facts = self.ai_report.build_report_facts(summary)
+        report = self.ai_report.fallback_report(summary)
+        self.assertEqual(5, facts["vocabulary"]["error_count"])
+        self.assertEqual(5, facts["vocabulary"]["foundation_errors"])
+        self.assertEqual("substantial", facts["vocabulary"]["severity"])
+        self.assertIn("базы предыдущего уровня A1", facts["level_conclusion"])
+        self.assertIn("грамматика, и лексика", facts["readiness"]["message"])
+        self.assertIn("С 7 класса", report)
+        self.assertIn("путешествия и транспорт", report)
+
+    def test_grammar_errors_do_not_become_vocabulary_errors(self):
+        summary = summary_for("5-6", {10, 11, 12, 13})
+        facts = self.ai_report.build_report_facts(summary)
+        report = self.ai_report.fallback_report(summary)
+        self.assertEqual(0, facts["vocabulary"]["error_count"])
+        self.assertEqual([], facts["vocabulary"]["categories"])
+        self.assertGreater(facts["grammar"]["error_count"], 0)
+        self.assertIn("В проверенной лексике явных трудностей не видно", report)
+        self.assertIn("не подтверждают весь словарный запас уровня A1+", report)
+
+    def test_possible_lexical_cause_is_not_reported_as_confirmed(self):
+        summary = summary_for("5-6", {1}, {1: "BE_HAVE_CONFUSION"})
+        facts = self.ai_report.build_report_facts(summary)
+        report = self.ai_report.fallback_report(summary)
+        self.assertEqual(0, facts["vocabulary"]["error_count"])
+        self.assertEqual(["семья и аксессуары"], facts["vocabulary"]["possible_categories"])
+        self.assertIn("могут указывать", report)
+        self.assertIn("недостаточно, чтобы утверждать это уверенно", report)
+
     def test_teacher_stub_uses_new_parent_report_structure(self):
         report = self.ai_report.teacher_stub(summary_for("3-4", {1, 2, 9, 10, 11}))
         self.assertIn("3–4 класс", report)
@@ -270,6 +362,17 @@ class AiReportTests(unittest.TestCase):
         self.assertFalse(self.ai_report.report_is_usable(bad_report, facts))
         cleaned = self.ai_report.clean_report_text("**«Притяжательные  слова» — тема**")
         self.assertEqual("притяжательные местоимения: тема", cleaned)
+
+    def test_ai_report_validator_requires_level_grammar_and_vocabulary(self):
+        facts = self.ai_report.build_report_facts(summary_for("5-6"))
+        valid_report = self.ai_report.fallback_report(summary_for("5-6"))
+        self.assertTrue(self.ai_report.report_is_usable(valid_report, facts))
+
+        without_vocabulary = valid_report.replace(facts["vocabulary"]["message"], "")
+        self.assertFalse(self.ai_report.report_is_usable(without_vocabulary, facts))
+
+        with_a2 = valid_report + " Уровень A2 подтверждён."
+        self.assertFalse(self.ai_report.report_is_usable(with_a2, facts))
 
 
 if __name__ == "__main__":
