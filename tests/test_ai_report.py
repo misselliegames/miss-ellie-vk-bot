@@ -38,15 +38,18 @@ class FakeRequests(types.ModuleType):
         gaps = "; ".join(item["label"] for item in facts["gaps"])
         foundation = facts["foundation"]["message"] if facts["foundation"] else ""
         content = (
-            f"Проверялся маршрут {facts['route_range']}. "
-            f"Результат: {facts['correct_total']} из {facts['total_questions']}.\n\n"
-            f"{facts['overall_conclusion']} Оценка — {facts['severity_label']}. "
+            "Спасибо, что нашли время пройти тест. "
+            f"Мы проверили, как ребёнок усвоил материал за {facts['route_range']}. "
+            f"Ребёнок правильно ответил на {facts['correct_total']} из {facts['total_questions']} вопросов.\n\n"
+            f"{facts['overall_conclusion']} По результату видно: {facts['severity_label']}. "
             f"{facts['severity_explanation']}\n\n"
-            f"Наиболее нестабильны: {gaps}.\n\n"
+            f"Ребёнок пока ошибается в таких темах: {gaps}.\n\n"
             f"{foundation}\n\n"
+            f"{facts['grade_context']}\n\n"
             f"{facts['progression_outlook']}\n\n"
-            "Это экспресс-диагностика. Чтобы понять уровень точнее, я бы ещё проверила речь, "
-            "понимание на слух и то, как ребёнок строит фразы без вариантов ответа."
+            "Это короткий тест с готовыми вариантами ответа. Чтобы точнее определить уровень, "
+            "я бы ещё посмотрела, как ребёнок говорит по-английски, понимает речь на слух "
+            "и сам составляет предложения."
         )
         return FakeResponse(content)
 
@@ -103,10 +106,28 @@ class AiReportTests(unittest.TestCase):
             "занимайтесь карточками",
             "делайте упражнения",
             "притяжательные слова",
+            "проверялся маршрут",
+            "хорошо получились",
+            "нестабильн",
+            "фундамент сохран",
+            "база сохран",
+            "оценка серьёзности",
+            "проверить речь",
+            "проверила речь",
+            "обычные действия",
+            "темы мешают",
+            "темы наслаиваются",
+            "могла ещё не изучаться",
+            "дальнейшее усложнение",
+            "потребуют от ребёнка",
+            "затрагивают значимую часть",
         ):
             self.assertNotIn(forbidden, lower)
         for markdown in ("**", "__", "`", "# "):
             self.assertNotIn(markdown, report)
+        for unwanted_character in ("—", "«", "»", "“", "”", "„"):
+            self.assertNotIn(unwanted_character, report)
+        self.assertNotRegex(report, r"[^\n] {2,}[^\n]")
         self.assertLess(len(report), 4096)
 
     def assert_report_contract(self, route, wrong_ids, expected_severity, expected_term):
@@ -115,12 +136,13 @@ class AiReportTests(unittest.TestCase):
         report = self.ai_report.fallback_report(summary)
         self.assertEqual(expected_severity, facts["severity"])
         self.assertIn(self.ai_report.ROUTE_RANGES[route], report)
-        self.assertIn(self.ai_report.SEVERITY_LABELS[expected_severity], report)
+        self.assertIn(self.ai_report.SEVERITY_LABELS[expected_severity], report.lower())
         self.assertIn(expected_term, report)
-        self.assertIn("школьн", report)
-        self.assertIn("программ", report)
-        self.assertIn("Это экспресс-диагностика", report)
-        self.assertIn("понимание на слух", report)
+        self.assertIn("Спасибо, что нашли время пройти тест", report)
+        self.assertIn("Мы проверили, как ребёнок усвоил материал", report)
+        self.assertIn("Это короткий тест с готовыми вариантами ответа", report)
+        self.assertIn("понимает речь на слух", report)
+        self.assertIn("сам составляет предложения", report)
         self.assert_parent_safe(report)
         return facts, report
 
@@ -168,42 +190,55 @@ class AiReportTests(unittest.TestCase):
             "3-4", {5, 6, 7, 8}, "noticeable", "сравнительная степень"
         )
         self.assertEqual(0, facts["foundation"]["mistakes"])
-        self.assertIn("фундамент первого этапа обучения", report)
-        self.assertIn("сохранён уверенно", report)
+        self.assertIn("усвоил материал за 1–2 класс", report)
+        self.assertIn("учится в 3 классе", report)
+        self.assertIn("Past Simple", report)
+        self.assertIn("мог ещё не проходить", report)
 
         facts, report = self.assert_report_contract(
             "3-4", {1}, "noticeable", "притяжательные местоимения"
         )
         self.assertEqual([1], facts["foundation"]["mistake_question_ids"])
-        self.assertIn("база закреплена не полностью", report)
+        self.assertIn("материал за 1–2 класс он в основном усвоил", report)
 
         facts, report = self.assert_report_contract(
             "3-4", set(range(1, 13)), "substantial", "притяжательные местоимения"
         )
         self.assertEqual(4, facts["foundation"]["mistakes"])
-        self.assertIn("важный сигнал", report)
+        self.assertIn("пройти тест за 1–2 класс", report)
+        self.assertIn("Даже если ребёнок сейчас учится в 3 классе", report)
+
+    def test_3_4_medium_score_is_interpreted_for_both_grades(self):
+        facts, report = self.assert_report_contract(
+            "3-4", set(range(9, 18)), "noticeable", "Past Simple"
+        )
+        self.assertEqual(11, facts["correct_total"])
+        self.assertEqual(0, facts["foundation"]["mistakes"])
+        self.assertIn("вполне хороший промежуточный результат", report)
+        self.assertIn("заканчивает 4 класс", report)
 
     def test_5_6_distinguishes_previous_stage_foundation(self):
         facts, report = self.assert_report_contract(
             "5-6", {10, 11, 12, 13}, "noticeable", "превосходная степень наречий"
         )
         self.assertEqual(0, facts["foundation"]["mistakes"])
-        self.assertIn("Первые 9 заданий", report)
-        self.assertIn("сохранена хорошо", report)
+        self.assertIn("первых девяти заданиях", report)
+        self.assertIn("усвоил материал за 3–4 класс", report)
 
         facts, report = self.assert_report_contract(
             "5-6", {1, 2}, "noticeable", "притяжательные местоимения"
         )
         self.assertEqual(2, facts["foundation"]["mistakes"])
         self.assertIn("с 7 класса", report.lower())
-        self.assertIn("усложняются скачкообразно", report)
+        self.assertIn("будет труднее", report)
 
         facts, report = self.assert_report_contract(
             "5-6", {1, 2, 3, 4, 5}, "substantial", "притяжательные местоимения"
         )
         self.assertEqual(5, facts["foundation"]["mistakes"])
-        self.assertIn("существенные пробелы", report)
-        self.assertIn("с 7 класса", report.lower())
+        self.assertIn("ошибок много", report.lower())
+        self.assertIn("пройти тест за 3–4 класс", report)
+        self.assertIn("Даже если ребёнок сейчас учится в 5 классе", report)
 
         facts, _report = self.assert_report_contract(
             "5-6", {20}, "small", "will для решения"
@@ -211,20 +246,30 @@ class AiReportTests(unittest.TestCase):
         self.assertEqual(19, facts["correct_total"])
         self.assertEqual(0, facts["foundation"]["mistakes"])
 
+    def test_5_6_medium_score_is_good_intermediate_result_for_fifth_grader(self):
+        facts, report = self.assert_report_contract(
+            "5-6", set(range(10, 19)), "noticeable", "превосходная степень наречий"
+        )
+        self.assertEqual(11, facts["correct_total"])
+        self.assertEqual(0, facts["foundation"]["mistakes"])
+        self.assertIn("вполне хороший промежуточный результат", report)
+        self.assertIn("часть тем за 6 класс он мог ещё не проходить", report)
+        self.assertIn("заканчивает 6 класс", report)
+
     def test_teacher_stub_uses_new_parent_report_structure(self):
         report = self.ai_report.teacher_stub(summary_for("3-4", {1, 2, 9, 10, 11}))
         self.assertIn("3–4 класс", report)
-        self.assertIn("существенные пробелы", report)
-        self.assertIn("фундамент первого этапа", report)
+        self.assertIn("ошибок много", report.lower())
+        self.assertIn("материала за 1–2 класс", report)
         self.assertNotIn("Нужно повторить:", report)
         self.assert_parent_safe(report)
 
     def test_invalid_ai_advice_is_replaced_by_safe_fallback(self):
         facts = self.ai_report.build_report_facts(summary_for("1-2", {20}))
-        bad_report = "Проверялся маршрут 1–2 класс. Небольшие пробелы. Попросите ребёнка повторять правила."
+        bad_report = "Проверялся маршрут 1–2 класс. Есть отдельные ошибки. Попросите ребёнка повторять правила."
         self.assertFalse(self.ai_report.report_is_usable(bad_report, facts))
-        cleaned = self.ai_report.clean_report_text("**Притяжательные слова**")
-        self.assertEqual("притяжательные местоимения", cleaned)
+        cleaned = self.ai_report.clean_report_text("**«Притяжательные  слова» — тема**")
+        self.assertEqual("притяжательные местоимения: тема", cleaned)
 
 
 if __name__ == "__main__":
