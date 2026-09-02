@@ -20,7 +20,7 @@ REPORT_TOPIC_NAMES = {
     "DEMONSTRATIVES": "указательные слова",
 }
 
-SYSTEM_PROMPT = """Ты — Miss Ellie, опытный преподаватель английского языка для школьников. На входе — только обезличенные результаты короткой диагностики Pre-A1 / Starters. Напиши родителю индивидуальный педагогический отчёт на естественном русском языке.
+SYSTEM_PROMPT = """Ты — Miss Ellie, опытный преподаватель английского языка для школьников. На входе — только обезличенные результаты короткой диагностики. Уровень и класс указаны в поле route. Напиши родителю индивидуальный педагогический отчёт на естественном русском языке.
 
 Опирайся только на переданные вопросы, выбранные и правильные ответы, диагностические пояснения и результаты. Ничего не выдумывай и не упоминай технические коды. Пиши профессионально, тепло и конкретно, без канцеляризмов и механического перечисления всех десяти тем.
 
@@ -62,13 +62,14 @@ def report_topic_name(topic: dict) -> str:
 
 
 def teacher_stub(summary: dict) -> str:
-    mastered = [report_topic_name(x) for x in summary["topics"] if x["score"] == 2]
-    partial = [report_topic_name(x) for x in summary["topics"] if x["score"] == 1]
+    mastered = [report_topic_name(x) for x in summary["topics"] if x["score"] == x["max"]]
+    partial = [report_topic_name(x) for x in summary["topics"] if 0 < x["score"] < x["max"]]
     needs = [report_topic_name(x) for x in summary["topics"] if x["score"] == 0]
     return (
         "Здравствуйте! Это демонстрационный отчёт для проверки курса — для вашего VK ID вызов платного ИИ отключён.\n\n"
-        f"Результат: {summary['correct_total']} из 20 ответов верные. Собрано {summary['emeralds']} изумрудов.\n\n"
-        f"Уверенно: {', '.join(mastered) if mastered else 'пока нет тем с результатом 2/2'}.\n"
+        f"Маршрут: {summary['route']}.\n"
+        f"Результат: {summary['correct_total']} из {summary['total_questions']} ответов верные. Собрано {summary['emeralds']} изумрудов.\n\n"
+        f"Уверенно: {', '.join(mastered) if mastered else 'пока нет тем с полностью верным результатом'}.\n"
         f"Частично: {', '.join(partial) if partial else '—'}.\n"
         f"Нужно повторить: {', '.join(needs) if needs else '—'}.\n\n"
         "В обычном пользовательском прохождении в этом месте вызывается AI API, которому передаются только обезличенные результаты диагностики и конкретные типы ошибок."
@@ -113,13 +114,13 @@ def generate_parent_report(user_id: int, summary: dict) -> str:
 
 
 def fallback_report(summary: dict) -> str:
-    mastered = [report_topic_name(x) for x in summary["topics"] if x["score"] == 2]
-    developing = [report_topic_name(x) for x in summary["topics"] if x["score"] < 2]
+    mastered = [report_topic_name(x) for x in summary["topics"] if x["score"] == x["max"]]
+    developing = [report_topic_name(x) for x in summary["topics"] if x["score"] < x["max"]]
     strongest = ", ".join(mastered[:3]) if mastered else "отдельные знакомые слова и конструкции"
     priorities = ", ".join(developing[:2]) if developing else "перенос знакомых конструкций в самостоятельную речь"
     parts = [
         "Здравствуйте! Я посмотрела результаты экспресс-диагностики.",
-        f"Ребёнок ответил верно на {summary['correct_total']} из 20 вопросов. Уже есть хорошая база, на которую можно опираться дальше.",
+        f"Ребёнок ответил верно на {summary['correct_total']} из {summary['total_questions']} вопросов. Уже есть хорошая база, на которую можно опираться дальше.",
         f"Увереннее всего получились задания на: {strongest}.",
     ]
     if developing:
