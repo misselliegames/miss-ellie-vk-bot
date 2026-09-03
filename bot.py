@@ -45,6 +45,7 @@ def reminder_delays_from_env():
 
 REMINDER_DELAYS = reminder_delays_from_env()
 REMINDER_POLL_SECONDS = max(1, int(os.getenv("REMINDER_POLL_SECONDS", "30")))
+POST_TEST_REMINDER_DELAYS = (20 * 60, 3 * 60 * 60, 24 * 60 * 60)
 
 POLICY_URL = "https://disk.yandex.ru/i/CmjPe-bGH87wsA"
 PD_CONSENT_URL = "https://disk.yandex.ru/i/TORpX__fuJmnxQ"
@@ -58,8 +59,111 @@ SUBSCRIBER_FIELDS = [
     "marketing_consent_at", "marketing_revoked_at", "class", "emeralds",
     "completed_at", "policy_url", "pd_consent_url", "marketing_consent_url",
 ]
-START_COMMANDS = {"начать", "начать тест", "тест", "пройти тест", "старт", "/start", "заново"}
+START_COMMANDS = {"начать", "начать тест", "тест", "старт", "/start"}
+RESTART_COMMANDS = {"заново", "пройти тест заново", "🔄 пройти тест заново"}
 ELLIE_SCREEN_NAME = "ellie_englie"
+
+TEST_MENU_LABEL = "📝 ПРОЙТИ ТЕСТ"
+TEST_START_LABEL = "ПРОЙТИ ТЕСТ"
+GIFTS_LABEL = "🎁 ПОДАРКИ"
+REVIEWS_LABEL = "⭐ ОТЗЫВЫ"
+TRIAL_LABEL = "💚 ЗАПИСАТЬСЯ НА ПРОБНЫЙ УРОК"
+RESTART_LABEL = "🔄 ПРОЙТИ ТЕСТ ЗАНОВО"
+MAIN_MENU_LABEL = "🏠 ГЛАВНОЕ МЕНЮ"
+
+REVIEWS_URL = "https://vk.ru/feed?w=narrative15117889_8960"
+TRIAL_URL = "https://vk.me/ellie_englie"
+
+POST_TEST_REMINDERS = (
+    (
+        "🐾 Тотошка тут подумал: подарок-то вы забрали? 🎁",
+        "button",
+        "Забрать подарок",
+    ),
+    (
+        "🐾 Ну как вам результат? Если хотите, Элли сама посмотрит, что лучше делать дальше 💚",
+        "openlink",
+        "Записаться на пробный",
+    ),
+    (
+        "🐾 Я ещё тут 🙂 Если захотите понять, как помочь ребёнку с английским — Элли рядом.\n\n"
+        "А я побежал! Больше не буду напоминать 💚",
+        "openlink",
+        "Записаться на пробный",
+    ),
+)
+
+TEST_WELCOME_TEXT = (
+    "Привет! Я Элли, и я помогаю школьникам полюбить английский и заговорить на нем.\n\n"
+    "Заходите в мой бот «Тотошка» и проходите тест-квест по школьному английскому.\n"
+    "После прохождения вы узнаете, что ваш ребенок помнит из учебной программы, что забыл или не понял, и что с этим теперь делать.\n\n"
+    "Нажимайте на кнопку 👇\n\n"
+    "Если кнопка не запускает тест — дайте мне знать:\n"
+    "https://vk.me/ellie_englie\n\n"
+    "Я сама позову Тотошку, и он все починит."
+)
+
+CLASS_SELECTION_TEXT = (
+    "Выберите, в каком классе учится ребёнок.\n"
+    "Если у вас языковая гимназия, выбирайте на уровень выше."
+)
+
+GIFT_OPTIONS = {
+    "1-2": (
+        (
+            "Повторяем правила чтения в эпической битве с драконом:\n"
+            "https://misselliegames.github.io/read-and-shoot/",
+            "Открыть битву с драконом",
+            "https://misselliegames.github.io/read-and-shoot/",
+        ),
+        (
+            "Помочь капитану из Японии:\n"
+            "https://misselliegames.github.io/ReadingLoadBoat/",
+            "Помочь капитану",
+            "https://misselliegames.github.io/ReadingLoadBoat/",
+        ),
+    ),
+    "3-4": (
+        (
+            "Отправляемся в Подземелья и Драконы: бродим по лабиринтам, ищем тайные клады и тренируем грамматику:\n"
+            "https://misselliegames.github.io/GrammarDungeon/",
+            "Открыть Подземелья",
+            "https://misselliegames.github.io/GrammarDungeon/",
+        ),
+        (
+            "Поиграть с котиком:\n"
+            "https://view.genially.com/68aacd3b7eb807e23b78c9f9",
+            "Поиграть с котиком",
+            "https://view.genially.com/68aacd3b7eb807e23b78c9f9",
+        ),
+    ),
+    "5-6": (
+        (
+            "Раскроем тайну пропавшей экспедиции и повторим аж 72 неправильных глагола в большом квесте про Тинтина:\n"
+            "https://misselliegames.github.io/TintinExpedition/",
+            "Открыть квест про Тинтина",
+            "https://misselliegames.github.io/TintinExpedition/",
+        ),
+        (
+            "Поиграть с котиком:\n"
+            "https://view.genially.com/6880daeca1dc1c756166020b",
+            "Поиграть с котиком",
+            "https://view.genially.com/6880daeca1dc1c756166020b",
+        ),
+    ),
+}
+
+QUESTION_STAGES = {"question", "sending_question", "question_retry", "question_transition"}
+UNFINISHED_TEST_STAGES = QUESTION_STAGES | {
+    "await_class", "await_handoff", "child_intro_retry", "await_go",
+    "shop", "shop_finishing", "await_parent",
+}
+RESUMABLE_START_STAGES = UNFINISHED_TEST_STAGES | {"await_pd_consent", "await_marketing_consent"}
+ROUTE_LABELS = {
+    "1–2 класс": "1-2", "1-2 класс": "1-2",
+    "3–4 класс": "3-4", "3-4 класс": "3-4",
+    "5–6 класс": "5-6", "5-6 класс": "5-6",
+}
 
 VK_TOKEN = (os.getenv("VK_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
 VK_GROUP_ID = (os.getenv("VK_GROUP_ID") or os.getenv("GROUP_ID") or "").strip()
@@ -99,7 +203,7 @@ ELLIE_VK_ID = None
 def blank_session():
     return {
         "session_id": uuid.uuid4().hex,
-        "stage": "await_pd_consent",
+        "stage": "welcome",
         "question_index": 0,
         "emeralds": 0,
         "answers": [],
@@ -112,6 +216,10 @@ def blank_session():
         "last_activity_at": None,
         "reminders_sent": 0,
         "completed": False,
+        "post_test_completed_at": None,
+        "post_test_reminders_sent": 0,
+        "pd_consent": False,
+        "marketing_consent": None,
     }
 
 
@@ -194,6 +302,63 @@ def class_keyboard():
     return kb
 
 
+def main_menu_keyboard():
+    kb = VkKeyboard(one_time=False)
+    kb.add_button(TEST_MENU_LABEL, color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button(GIFTS_LABEL, color=VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_openlink_button(REVIEWS_LABEL, REVIEWS_URL)
+    kb.add_line()
+    kb.add_openlink_button(TRIAL_LABEL, TRIAL_URL)
+    return kb
+
+
+def final_menu_keyboard():
+    kb = VkKeyboard(one_time=False)
+    kb.add_button(GIFTS_LABEL, color=VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_openlink_button(REVIEWS_LABEL, REVIEWS_URL)
+    kb.add_line()
+    kb.add_openlink_button(TRIAL_LABEL, TRIAL_URL)
+    kb.add_line()
+    kb.add_button(RESTART_LABEL, color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
+    return kb
+
+
+def gift_class_keyboard():
+    kb = VkKeyboard(one_time=False)
+    kb.add_button("1–2 класс", color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button("3–4 класс", color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button("5–6 класс", color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
+    return kb
+
+
+def gift_links_keyboard(gifts):
+    kb = VkKeyboard(one_time=False)
+    for index, (_text, label, url) in enumerate(gifts):
+        kb.add_openlink_button(label, url)
+        if index != len(gifts) - 1:
+            kb.add_line()
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
+    return kb
+
+
+def link_section_keyboard(label, url):
+    kb = VkKeyboard(one_time=False)
+    kb.add_openlink_button(label, url)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
+    return kb
+
+
 def upload_photo(path: Path):
     key = str(path.resolve())
     if key in PHOTO_CACHE:
@@ -243,6 +408,47 @@ def update_subscriber(user_id, **updates):
     finally:
         if temp_path.exists():
             temp_path.unlink()
+
+
+def read_subscriber(user_id):
+    if not SUBSCRIBERS_CSV_PATH.exists():
+        return {}
+    try:
+        with SUBSCRIBERS_CSV_PATH.open("r", encoding="utf-8-sig", newline="") as source:
+            for row in csv.DictReader(source):
+                if row.get("vk_id") == str(user_id):
+                    return row
+    except Exception as exc:
+        print(f"SUBSCRIBER_READ_FAILED: {type(exc).__name__}")
+    return {}
+
+
+def saved_consent_state(user_id):
+    session = SESSIONS.get(user_id) or {}
+    pd_consent = session.get("pd_consent") is True
+    marketing_consent = session.get("marketing_consent")
+    if pd_consent and marketing_consent is not None:
+        return pd_consent, marketing_consent
+
+    record = read_subscriber(user_id)
+    if not pd_consent:
+        pd_consent = str(record.get("pd_consent", "")).lower() == "true"
+    if marketing_consent is None:
+        stored_marketing = str(record.get("marketing_consent", "")).lower()
+        if stored_marketing in {"true", "false"}:
+            marketing_consent = stored_marketing == "true"
+    return pd_consent, marketing_consent
+
+
+def replace_with_clean_test_session(user_id):
+    pd_consent, marketing_consent = saved_consent_state(user_id)
+    session = blank_session()
+    session["pd_consent"] = pd_consent
+    session["marketing_consent"] = marketing_consent
+    session["stage"] = "await_class"
+    SESSIONS[user_id] = session
+    persist_session(user_id)
+    return session
 
 
 def question_text(q, options, total_questions):
@@ -429,31 +635,10 @@ def send_parent_report(user_id):
     send(user_id, report)
     s["stage"] = "done"
     s["completed"] = True
+    s["post_test_completed_at"] = utc_now()
+    s["post_test_reminders_sent"] = 0
     persist_session(user_id)
-
-    fallback_link = "https://vk.me/ellie_englie"
-    try:
-        trial_link = build_trial_lesson_link(s["emeralds"])
-    except Exception as exc:
-        print(f"TRIAL_LINK_BUILD_FAILED: {type(exc).__name__}")
-        trial_link = fallback_link
-    try:
-        send(
-            user_id,
-            "Хотите записаться на пробный урок?",
-            keyboard=openlink_button("Записаться на пробный урок", trial_link),
-        )
-    except Exception as exc:
-        print(f"TRIAL_CTA_SEND_FAILED: {type(exc).__name__}")
-        if trial_link != fallback_link:
-            try:
-                send(
-                    user_id,
-                    "Хотите записаться на пробный урок?",
-                    keyboard=openlink_button("Записаться на пробный урок", fallback_link),
-                )
-            except Exception as fallback_exc:
-                print(f"TRIAL_CTA_FALLBACK_FAILED: {type(fallback_exc).__name__}")
+    send_final_menu(user_id)
 
 
 def decline_emeralds(number):
@@ -503,12 +688,153 @@ def build_trial_lesson_link(emeralds):
     return f"https://vk.com/write{resolve_ellie_vk_id()}?text={encoded_text}"
 
 
+def show_test_welcome(user_id):
+    session = SESSIONS.get(user_id)
+    if session is None:
+        session = blank_session()
+        SESSIONS[user_id] = session
+    if session.get("stage") not in RESUMABLE_START_STAGES:
+        session["stage"] = "welcome"
+    session["navigation_section"] = "test_welcome"
+    session["test_welcome_ready"] = True
+    persist_session(user_id)
+    send(
+        user_id,
+        TEST_WELCOME_TEXT,
+        keyboard=one_button(TEST_START_LABEL, VkKeyboardColor.POSITIVE),
+    )
+
+
+def send_class_selection(user_id):
+    send(user_id, CLASS_SELECTION_TEXT, keyboard=class_keyboard())
+    SESSIONS[user_id]["stage"] = "await_class"
+    persist_session(user_id)
+
+
+def resume_unfinished_flow(user_id):
+    session = SESSIONS[user_id]
+    stage = session.get("stage")
+    if stage == "await_pd_consent":
+        start_flow(user_id)
+    elif stage == "await_marketing_consent":
+        send_marketing_consent(user_id)
+    elif stage == "await_class":
+        send_class_selection(user_id)
+    elif stage == "await_handoff":
+        send_handoff(user_id)
+    elif stage in {"child_intro_retry", "await_go"}:
+        child_intro(user_id)
+    elif stage in QUESTION_STAGES:
+        send_question(user_id)
+    elif stage == "shop":
+        send_shop_category(user_id)
+    elif stage == "shop_finishing":
+        finish_shop(user_id)
+    elif stage == "await_parent":
+        send(
+            user_id,
+            "🐾 Передайте телефон маме или папе и нажмите кнопку.",
+            keyboard=one_button("Родитель здесь", VkKeyboardColor.PRIMARY),
+        )
+
+
+def begin_test(user_id):
+    session = SESSIONS.get(user_id)
+    if session:
+        session.pop("test_welcome_ready", None)
+        session.pop("navigation_section", None)
+        persist_session(user_id)
+    if session and not session.get("completed") and session.get("stage") in RESUMABLE_START_STAGES:
+        resume_unfinished_flow(user_id)
+        return
+    pd_consent, _marketing_consent = saved_consent_state(user_id)
+    if pd_consent:
+        replace_with_clean_test_session(user_id)
+        send_class_selection(user_id)
+    else:
+        start_flow(user_id)
+
+
+def restart_test(user_id):
+    session = SESSIONS.get(user_id)
+    if session and session.get("completed") and saved_consent_state(user_id)[0]:
+        replace_with_clean_test_session(user_id)
+        send_class_selection(user_id)
+        return
+    if session and not session.get("completed") and session.get("stage") in UNFINISHED_TEST_STAGES:
+        send(
+            user_id,
+            "У вас уже есть незаконченный тест. Продолжим его, чтобы не потерять ответы.",
+        )
+        resume_unfinished_flow(user_id)
+        return
+    show_test_welcome(user_id)
+
+
+def show_main_menu(user_id):
+    session = SESSIONS.get(user_id)
+    if session is None:
+        session = blank_session()
+        SESSIONS[user_id] = session
+    if not (not session.get("completed") and session.get("stage") in RESUMABLE_START_STAGES):
+        session["stage"] = "main_menu"
+    session["navigation_section"] = "main_menu"
+    persist_session(user_id)
+    send(user_id, "Главное меню", keyboard=main_menu_keyboard())
+
+
+def show_gift_class_menu(user_id):
+    session = SESSIONS.get(user_id)
+    if session is None:
+        session = blank_session()
+        SESSIONS[user_id] = session
+    if not (not session.get("completed") and session.get("stage") in RESUMABLE_START_STAGES):
+        session["stage"] = "gift_class"
+    session["navigation_section"] = "gift_class"
+    persist_session(user_id)
+    send(user_id, "Для какого класса выбрать подарок?", keyboard=gift_class_keyboard())
+
+
+def show_gifts(user_id, route):
+    gifts = GIFT_OPTIONS[route]
+    session = SESSIONS[user_id]
+    if not (not session.get("completed") and session.get("stage") in RESUMABLE_START_STAGES):
+        session["stage"] = "gift_done"
+    session["navigation_section"] = "gift_done"
+    persist_session(user_id)
+    send(
+        user_id,
+        "\n\n".join(text for text, _label, _url in gifts),
+        keyboard=gift_links_keyboard(gifts),
+    )
+
+
+def show_link_section(user_id, title, label, url):
+    session = SESSIONS.get(user_id)
+    if session is None:
+        session = blank_session()
+        SESSIONS[user_id] = session
+    if session.get("stage") not in RESUMABLE_START_STAGES:
+        session["stage"] = "link_section"
+    session["navigation_section"] = "link_section"
+    persist_session(user_id)
+    send(user_id, f"{title}:\n{url}", keyboard=link_section_keyboard(label, url))
+
+
+def send_final_menu(user_id):
+    send(
+        user_id,
+        "Что хотите сделать дальше? Здесь можно выбрать подарки, посмотреть отзывы, записаться на пробный урок или пройти тест заново.",
+        keyboard=final_menu_keyboard(),
+    )
+
+
 def start_flow(user_id):
     SESSIONS[user_id] = blank_session()
     s = SESSIONS[user_id]
     send(user_id,
-         "Ура, вы добрались до ворот Изумрудного Города! 💚\n"
-         "Но даже здесь есть пара волшебных бумажек — обычная бюрократия, примерно как зелёные очки от Дин Гиора 😄\n\n"
+         "Ура! Вы добрались до ворот Изумрудного Города 💚 Элли хлопает в ладоши и очень рада вас видеть.\n\n"
+         "Но даже здесь есть пара волшебных бумажек — обычная бюрократия.\n\n"
          "Перед началом теста нужно ваше согласие на обработку данных, необходимых для работы диагностики и подготовки результата.\n\n"
          f"📄 Политика обработки персональных данных:\n{POLICY_URL}\n\n"
          f"📄 Согласие на обработку персональных данных:\n{PD_CONSENT_URL}\n\n"
@@ -539,12 +865,9 @@ def send_instruction(user_id):
         "Объясните ребёнку, что ошибаться можно, но лучше постараться вспомнить или угадать правильный ответ. "
         "Угадывать тоже можно — это наша языковая интуиция.\n\n"
         "За каждый правильный ответ ребёнок получает изумруды 💎, на которые в конце может построить себе маленький уютный мир в стиле Minecraft.\n\n"
-        "После этого ребёнок вернёт вам телефон, и вы получите результаты теста.\n\n"
-        "Итак, выберите, в каком классе учится ребёнок.",
-        keyboard=class_keyboard(),
+        "После этого ребёнок вернёт вам телефон, и вы получите результаты теста.",
     )
-    SESSIONS[user_id]["stage"] = "await_class"
-    persist_session(user_id)
+    send_class_selection(user_id)
 
 
 def send_handoff(user_id):
@@ -610,8 +933,42 @@ def on_message(user_id, text):
         send(user_id, "Готово! Рекламные сообщения отключены 💚")
         return
 
+    session = SESSIONS.get(user_id)
+    stage = session.get("stage") if session else None
+
+    if lowered in {"главное меню", MAIN_MENU_LABEL.lower()}:
+        show_main_menu(user_id)
+        return
+
+    if lowered == TEST_MENU_LABEL.lower():
+        show_test_welcome(user_id)
+        return
+
+    if lowered == TEST_START_LABEL.lower():
+        if session and session.get("test_welcome_ready"):
+            begin_test(user_id)
+        else:
+            show_test_welcome(user_id)
+        return
+
     if lowered in START_COMMANDS:
-        start_flow(user_id)
+        show_test_welcome(user_id)
+        return
+
+    if lowered in RESTART_COMMANDS:
+        restart_test(user_id)
+        return
+
+    if lowered in {"подарки", "забрать подарок", GIFTS_LABEL.lower()}:
+        show_gift_class_menu(user_id)
+        return
+
+    if lowered in {"отзывы", REVIEWS_LABEL.lower()}:
+        show_link_section(user_id, "Отзывы", REVIEWS_LABEL, REVIEWS_URL)
+        return
+
+    if lowered in {"записаться на пробный урок", TRIAL_LABEL.lower()}:
+        show_link_section(user_id, "Записаться на пробный урок", TRIAL_LABEL, TRIAL_URL)
         return
 
     s = SESSIONS.get(user_id)
@@ -619,24 +976,42 @@ def on_message(user_id, text):
         return
 
     stage = s["stage"]
-    if lowered in {"продолжить тест", "продолжить", "закончить тест"} and stage in {
-        "question", "sending_question", "question_retry", "question_transition"
-    }:
-        send_question(user_id)
+    if lowered in {"продолжить тест", "продолжить", "закончить тест"} and stage in UNFINISHED_TEST_STAGES:
+        s.pop("navigation_section", None)
+        persist_session(user_id)
+        resume_unfinished_flow(user_id)
+        return
+    if s.get("navigation_section") == "gift_class":
+        route = ROUTE_LABELS.get(lowered)
+        if route:
+            show_gifts(user_id, route)
+        else:
+            show_gift_class_menu(user_id)
         return
     if stage == "await_pd_consent":
         if lowered == "согласен(на), идём дальше":
             now = utc_now()
+            s["pd_consent"] = True
+            persist_session(user_id)
             update_subscriber(user_id, pd_consent=True, pd_consent_at=now)
             send_marketing_consent(user_id)
         elif lowered == "не согласен(на)":
+            s["pd_consent"] = False
+            persist_session(user_id)
             update_subscriber(user_id, pd_consent=False, pd_consent_at="")
-            send(user_id, "Понимаю 💚 Без согласия провести персональную диагностику не получится. Если передумаете, напишите «Начать».")
+            send(
+                user_id,
+                "Понимаю 💚 Без согласия провести персональную диагностику не получится. Если передумаете, вернитесь в Главное меню.",
+                keyboard=one_button(MAIN_MENU_LABEL, VkKeyboardColor.SECONDARY),
+            )
             s["stage"] = "consent_declined"
+            persist_session(user_id)
         else:
             start_flow(user_id)
     elif stage == "await_marketing_consent":
         if lowered == "да, хочу получать":
+            s["marketing_consent"] = True
+            persist_session(user_id)
             update_subscriber(
                 user_id,
                 marketing_consent=True,
@@ -645,6 +1020,8 @@ def on_message(user_id, text):
             )
             send_instruction(user_id)
         elif lowered == "нет, спасибо":
+            s["marketing_consent"] = False
+            persist_session(user_id)
             update_subscriber(
                 user_id,
                 marketing_consent=False,
@@ -654,19 +1031,14 @@ def on_message(user_id, text):
         else:
             send_marketing_consent(user_id)
     elif stage == "await_class":
-        route_labels = {
-            "1–2 класс": "1-2", "1-2 класс": "1-2",
-            "3–4 класс": "3-4", "3-4 класс": "3-4",
-            "5–6 класс": "5-6", "5-6 класс": "5-6",
-        }
-        route = route_labels.get(lowered)
+        route = ROUTE_LABELS.get(lowered)
         if route:
             s["class"] = route
             update_subscriber(user_id, **{"class": route})
             persist_session(user_id)
             send_handoff(user_id)
         else:
-            send_instruction(user_id)
+            send_class_selection(user_id)
     elif stage == "await_handoff":
         child_intro(user_id)
     elif stage == "child_intro_retry":
@@ -685,9 +1057,17 @@ def on_message(user_id, text):
     elif stage == "await_parent":
         send_parent_report(user_id)
     elif stage == "done":
-        send(user_id, "Диагностика завершена. Чтобы пройти её заново, напишите «Заново».")
+        send_final_menu(user_id)
+    elif stage == "gift_class":
+        route = ROUTE_LABELS.get(lowered)
+        if route:
+            show_gifts(user_id, route)
+        else:
+            show_gift_class_menu(user_id)
+    elif stage in {"main_menu", "gift_done", "link_section", "welcome"}:
+        show_main_menu(user_id)
     elif stage == "consent_declined":
-        send(user_id, "Чтобы вернуться к диагностике, напишите «Начать».")
+        show_main_menu(user_id)
 
 
 def run_due_reminders(now=None):
@@ -730,12 +1110,73 @@ def run_due_reminders(now=None):
     return sent_count
 
 
+def due_post_test_reminder_index(session, now):
+    if not session.get("completed"):
+        return None
+    completed_at_raw = session.get("post_test_completed_at")
+    if not completed_at_raw:
+        return None
+    sent = int(session.get("post_test_reminders_sent", 0))
+    if sent < 0 or sent >= len(POST_TEST_REMINDERS):
+        return None
+    try:
+        completed_at = datetime.fromisoformat(completed_at_raw)
+    except (TypeError, ValueError):
+        return None
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=timezone.utc)
+    elapsed_seconds = (now - completed_at).total_seconds()
+    return sent if elapsed_seconds >= POST_TEST_REMINDER_DELAYS[sent] else None
+
+
+def run_due_post_test_reminders(now=None):
+    now = now or datetime.now(timezone.utc)
+    sent_count = 0
+    for user_id in list(SESSIONS):
+        with SESSION_LOCK:
+            session = SESSIONS.get(user_id)
+            if session is None:
+                continue
+            reminder_index = due_post_test_reminder_index(session, now)
+            if reminder_index is None:
+                continue
+            session["post_test_reminders_sent"] = reminder_index + 1
+            persist_session(user_id)
+            random_id = reminder_random_id(session["session_id"], 101 + reminder_index)
+            text, button_type, button_label = POST_TEST_REMINDERS[reminder_index]
+        try:
+            keyboard = (
+                one_button(button_label, VkKeyboardColor.PRIMARY)
+                if button_type == "button"
+                else openlink_button(button_label, TRIAL_URL)
+            )
+            send(user_id, text, keyboard=keyboard, random_id=random_id)
+            sent_count += 1
+        except Exception as exc:
+            with SESSION_LOCK:
+                session = SESSIONS.get(user_id)
+                if session and session.get("post_test_reminders_sent") == reminder_index + 1:
+                    session["post_test_reminders_sent"] = reminder_index
+                    persist_session(user_id)
+            print(f"POST_TEST_REMINDER_SEND_FAILED_{reminder_index + 1}: {type(exc).__name__}")
+    return sent_count
+
+
 def reminder_worker():
     while True:
         try:
             run_due_reminders()
         except Exception as exc:
             print(f"REMINDER_WORKER_ERROR: {type(exc).__name__}")
+        time.sleep(REMINDER_POLL_SECONDS)
+
+
+def post_test_reminder_worker():
+    while True:
+        try:
+            run_due_post_test_reminders()
+        except Exception as exc:
+            print(f"POST_TEST_REMINDER_WORKER_ERROR: {type(exc).__name__}")
         time.sleep(REMINDER_POLL_SECONDS)
 
 
@@ -777,6 +1218,7 @@ def validate_assets():
 def main():
     validate_assets()
     threading.Thread(target=reminder_worker, name="unfinished-test-reminders", daemon=True).start()
+    threading.Thread(target=post_test_reminder_worker, name="post-test-reminders", daemon=True).start()
     print("Miss Ellie VK bot started; all route assets OK; reminders active")
     while True:
         try:

@@ -295,7 +295,7 @@ class AiReportTests(unittest.TestCase):
         lexical_choices = {
             1: "FAMILY_DAUGHTER_HUSBAND",
             2: "FEELINGS_APPEARANCE",
-            3: "DOLL_LAMP",
+            3: "DOLL_BALL",
             4: "ACTION_VOCABULARY",
         }
         summary = summary_for("3-4", lexical_choices, lexical_choices)
@@ -338,6 +338,25 @@ class AiReportTests(unittest.TestCase):
         self.assertGreater(facts["grammar"]["error_count"], 0)
         self.assertIn("В проверенной лексике явных трудностей не видно", report)
         self.assertIn("не подтверждают весь словарный запас уровня A1+", report)
+
+    def test_new_5_6_lexical_distractors_are_reported_separately(self):
+        lexical_choices = {
+            11: "FREE_TIME_ACTIVITY",
+            13: "REFLEXIVE_CRIME_ACTIONS",
+            17: "ROAD_SAFETY_ROUTE",
+            19: "PLAN_VS_WILL_GARDEN",
+            20: "DECISION_VS_ARRANGEMENT_ACTIONS",
+        }
+        summary = summary_for("5-6", lexical_choices, lexical_choices)
+        facts = self.ai_report.build_report_facts(summary)
+        self.assertEqual(5, facts["vocabulary"]["error_count"])
+        self.assertEqual(
+            [11, 13, 17, 19, 20],
+            [item["question_id"] for item in facts["vocabulary"]["confirmed_errors"]],
+        )
+        self.assertIn("свободное время", facts["vocabulary"]["categories"])
+        self.assertIn("безопасность на дороге и направления", facts["vocabulary"]["categories"])
+        self.assertEqual([13, 19, 20], facts["grammar"]["mistake_question_ids"])
 
     def test_possible_lexical_cause_is_not_reported_as_confirmed(self):
         summary = summary_for("5-6", {1}, {1: "BE_HAVE_CONFUSION"})

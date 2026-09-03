@@ -18,6 +18,7 @@ class BotFlowTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         bot.SESSION_STORE = SessionStore(Path(self.temp.name) / "sessions.sqlite3")
+        bot.SUBSCRIBERS_CSV_PATH = Path(self.temp.name) / "subscribers.csv"
         bot.SESSIONS.clear()
         self.messages = []
         bot.send = lambda user_id, text, keyboard=None, attachment=None, random_id=None: self.messages.append({
@@ -39,6 +40,11 @@ class BotFlowTests(unittest.TestCase):
     def _label_for_original_option(session, question, option_index):
         displayed_index = session["option_orders"][question["id"]].index(option_index)
         return "ABC"[displayed_index]
+
+    @staticmethod
+    def _keyboard_actions(message):
+        keyboard = message["keyboard"]
+        return keyboard.actions if keyboard else []
 
     def run_route(self, route, mode, user_id):
         session = bot.blank_session()
@@ -87,6 +93,223 @@ class BotFlowTests(unittest.TestCase):
         self.assertTrue(session["completed"])
         self.assertTrue(any(message["text"].startswith("REPORT") for message in self.messages))
         self.assertTrue(any("пробный урок" in message["text"] for message in self.messages))
+        final_actions = self._keyboard_actions(self.messages[-1])
+        self.assertIn(("button", bot.GIFTS_LABEL, "primary"), final_actions)
+        self.assertIn(("openlink", bot.REVIEWS_LABEL, bot.REVIEWS_URL), final_actions)
+        self.assertIn(("openlink", bot.TRIAL_LABEL, bot.TRIAL_URL), final_actions)
+        self.assertIn(("button", bot.RESTART_LABEL, "positive"), final_actions)
+        self.assertIn(("button", bot.MAIN_MENU_LABEL, "secondary"), final_actions)
+
+    def test_new_user_follows_approved_start_consent_and_class_flow(self):
+        user_id = 600
+        bot.on_message(user_id, "старт")
+        session = bot.SESSIONS[user_id]
+        self.assertEqual("welcome", session["stage"])
+        self.assertEqual(bot.TEST_WELCOME_TEXT, self.messages[-1]["text"])
+        self.assertIn(
+            ("button", bot.TEST_START_LABEL, "positive"),
+            self._keyboard_actions(self.messages[-1]),
+        )
+
+        bot.on_message(user_id, bot.TEST_START_LABEL)
+        session = bot.SESSIONS[user_id]
+        self.assertEqual("await_pd_consent", session["stage"])
+        self.assertTrue(self.messages[-1]["text"].startswith(
+            "Ура! Вы добрались до ворот Изумрудного Города 💚 Элли хлопает в ладоши и очень рада вас видеть.\n\n"
+            "Но даже здесь есть пара волшебных бумажек — обычная бюрократия."
+        ))
+
+        bot.on_message(user_id, "Согласен(на), идём дальше")
+        self.assertTrue(session["pd_consent"])
+        self.assertEqual("await_marketing_consent", session["stage"])
+        bot.on_message(user_id, "Нет, спасибо")
+        self.assertFalse(session["marketing_consent"])
+        self.assertEqual("await_class", session["stage"])
+        self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
+
+        bot.on_message(user_id, "3–4 класс")
+        self.assertEqual("3-4", session["class"])
+        self.assertEqual("await_handoff", session["stage"])
+        bot.on_message(user_id, "Да")
+        self.assertEqual("await_go", session["stage"])
+        bot.on_message(user_id, "Вперёд!")
+        self.assertEqual("question", session["stage"])
+        self.assertIn("Задание 1/20", self.messages[-1]["text"])
+
+    def test_main_menu_has_exact_four_actions_and_links(self):
+        user_id = 610
+        bot.show_main_menu(user_id)
+        actions = self._keyboard_actions(self.messages[-1])
+        self.assertEqual(
+            [
+                ("button", bot.TEST_MENU_LABEL, "positive"),
+                ("button", bot.GIFTS_LABEL, "primary"),
+                ("openlink", bot.REVIEWS_LABEL, bot.REVIEWS_URL),
+                ("openlink", bot.TRIAL_LABEL, bot.TRIAL_URL),
+            ],
+            [action for action in actions if action[0] != "line"],
+        )
+
+    def test_navigation_does_not_skip_unanswered_marketing_consent(self):
+        user_id = 615
+        bot.on_message(user_id, "старт")
+        bot.on_message(user_id, bot.TEST_START_LABEL)
+        bot.on_message(user_id, "Согласен(на), идём дальше")
+        session = bot.SESSIONS[user_id]
+        self.assertEqual("await_marketing_consent", session["stage"])
+
+        bot.on_message(user_id, bot.GIFTS_LABEL)
+        bot.on_message(user_id, "3–4 класс")
+        self.assertEqual("await_marketing_consent", session["stage"])
+        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
+        bot.on_message(user_id, bot.TEST_MENU_LABEL)
+        bot.on_message(user_id, bot.TEST_START_LABEL)
+
+        self.assertEqual("await_marketing_consent", session["stage"])
+        self.assertIn("Хотите иногда получать", self.messages[-1]["text"])
+
+    def test_gifts_are_selected_independently_and_all_six_links_are_exact(self):
+        user_id = 620
+        session = bot.blank_session()
+        session.update({"stage": "done", "completed": True, "pd_consent": True, "class": "5-6"})
+        bot.SESSIONS[user_id] = session
+
+        expected_urls = set()
+        for label, route in (("1–2 класс", "1-2"), ("3–4 класс", "3-4"), ("5–6 класс", "5-6")):
+            bot.on_message(user_id, bot.GIFTS_LABEL)
+            self.assertEqual("Для какого класса выбрать подарок?", self.messages[-1]["text"])
+            bot.on_message(user_id, label)
+            gift_message = self.messages[-1]
+            gifts = bot.GIFT_OPTIONS[route]
+            self.assertEqual("\n\n".join(item[0] for item in gifts), gift_message["text"])
+            links = [action[2] for action in self._keyboard_actions(gift_message) if action[0] == "openlink"]
+            self.assertEqual([item[2] for item in gifts], links)
+            self.assertEqual("5-6", session["class"])
+            expected_urls.update(links)
+
+        self.assertEqual(
+            {
+                "https://misselliegames.github.io/read-and-shoot/",
+                "https://misselliegames.github.io/ReadingLoadBoat/",
+                "https://misselliegames.github.io/GrammarDungeon/",
+                "https://view.genially.com/68aacd3b7eb807e23b78c9f9",
+                "https://misselliegames.github.io/TintinExpedition/",
+                "https://view.genially.com/6880daeca1dc1c756166020b",
+            },
+            expected_urls,
+        )
+        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
+        self.assertEqual("main_menu", session["stage"])
+        self.assertEqual("Главное меню", self.messages[-1]["text"])
+
+    def test_restart_skips_welcome_and_consents_and_clears_old_result(self):
+        user_id = 630
+        old_session = bot.blank_session()
+        old_session.update({
+            "stage": "done",
+            "completed": True,
+            "pd_consent": True,
+            "marketing_consent": False,
+            "class": "3-4",
+            "question_index": 20,
+            "answers": [{"question_id": 1, "correct": True}],
+            "emeralds": 35,
+            "option_orders": {1: [2, 0, 1]},
+            "shop_selected": {"house": "house_08_small"},
+        })
+        old_session_id = old_session["session_id"]
+        bot.SESSIONS[user_id] = old_session
+
+        bot.on_message(user_id, bot.RESTART_LABEL)
+        new_session = bot.SESSIONS[user_id]
+        self.assertNotEqual(old_session_id, new_session["session_id"])
+        self.assertEqual("await_class", new_session["stage"])
+        self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
+        self.assertEqual("", new_session["class"])
+        self.assertEqual(0, new_session["question_index"])
+        self.assertEqual(0, new_session["emeralds"])
+        self.assertEqual([], new_session["answers"])
+        self.assertEqual({}, new_session["option_orders"])
+        self.assertEqual({}, new_session["shop_selected"])
+        self.assertTrue(new_session["pd_consent"])
+        self.assertFalse(new_session["marketing_consent"])
+        self.assertFalse(new_session["completed"])
+        restored = bot.SESSION_STORE.load_all()[user_id]
+        self.assertEqual("await_class", restored["stage"])
+        self.assertEqual([], restored["answers"])
+        self.assertTrue(restored["pd_consent"])
+
+        message_count = len(self.messages)
+        bot.on_message(user_id, "не тот класс")
+        self.assertEqual(message_count + 1, len(self.messages))
+        self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
+
+    def test_start_menu_and_gifts_do_not_destroy_unfinished_test(self):
+        user_id = 640
+        session = bot.blank_session()
+        session.update({
+            "stage": "question",
+            "class": "5-6",
+            "question_index": 5,
+            "answers": [{"question_id": 1, "correct": True}],
+            "emeralds": 2,
+            "pd_consent": True,
+        })
+        bot.SESSIONS[user_id] = session
+
+        bot.on_message(user_id, "тест")
+        self.assertEqual("question", session["stage"])
+        self.assertEqual(5, session["question_index"])
+        self.assertEqual(bot.TEST_WELCOME_TEXT, self.messages[-1]["text"])
+        bot.on_message(user_id, bot.TEST_START_LABEL)
+        self.assertEqual("question", session["stage"])
+        self.assertEqual(5, session["question_index"])
+        self.assertEqual(2, session["emeralds"])
+        self.assertIn("Задание 6/20", self.messages[-1]["text"])
+
+        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
+        self.assertEqual("question", session["stage"])
+        self.assertEqual(5, session["question_index"])
+        self.assertEqual("Главное меню", self.messages[-1]["text"])
+        self.assertEqual(
+            [bot.TEST_MENU_LABEL, bot.GIFTS_LABEL],
+            [action[1] for action in self._keyboard_actions(self.messages[-1]) if action[0] == "button"],
+        )
+
+        bot.on_message(user_id, bot.GIFTS_LABEL)
+        self.assertEqual("question", session["stage"])
+        self.assertEqual("Для какого класса выбрать подарок?", self.messages[-1]["text"])
+        bot.on_message(user_id, "1–2 класс")
+        self.assertEqual("question", session["stage"])
+        self.assertIn(bot.GIFT_OPTIONS["1-2"][0][0], self.messages[-1]["text"])
+        self.assertEqual(5, session["question_index"])
+        self.assertEqual(2, session["emeralds"])
+
+        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
+        bot.on_message(user_id, bot.TEST_MENU_LABEL)
+        bot.on_message(user_id, bot.TEST_START_LABEL)
+        self.assertEqual("question", session["stage"])
+        self.assertEqual(5, session["question_index"])
+        self.assertIn("Задание 6/20", self.messages[-1]["text"])
+
+    def test_legacy_saved_consent_also_skips_legal_steps_on_restart(self):
+        user_id = 650
+        bot.SUBSCRIBERS_CSV_PATH.write_text(
+            "vk_id,pd_consent,marketing_consent\n650,true,false\n",
+            encoding="utf-8",
+        )
+        session = bot.blank_session()
+        session.pop("pd_consent")
+        session.pop("marketing_consent")
+        session.update({"stage": "done", "completed": True})
+        bot.SESSIONS[user_id] = session
+
+        bot.on_message(user_id, bot.RESTART_LABEL)
+        restarted = bot.SESSIONS[user_id]
+        self.assertEqual("await_class", restarted["stage"])
+        self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
+        self.assertTrue(restarted["pd_consent"])
+        self.assertFalse(restarted["marketing_consent"])
 
     def test_due_reminders_resume_current_question_and_survive_restart(self):
         user_id = 700

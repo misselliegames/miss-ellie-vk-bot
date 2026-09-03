@@ -70,12 +70,14 @@ TOPIC_LABELS = {
     "THERE_IS_ARE_SOME_ANY": "there is / there are и some / any",
     "SUPERLATIVE_ADVERBS": "превосходная степень наречий",
     "ENJOY_GERUND_QUESTION": "порядок слов в вопросе и герундий после enjoy",
+    "ENJOY_GERUND": "герундий после enjoy",
     "FEW_LITTLE": "few / a few и little / a little: количество и достаточность",
     "REFLEXIVE_PRONOUNS": "возвратные местоимения himself / herself",
     "HAVE_TO_HAS_TO": "have to / has to: обязанность и выбор формы по подлежащему",
     "MUSTNT_DONT_HAVE_TO_NEEDNT": "mustn’t, don’t have to и needn’t: запрет и отсутствие необходимости",
     "SHOULD": "глагол should: совет и форма глагола без to",
     "WANT_TO_LET": "конструкции want to do и let somebody do",
+    "IMPERATIVE_ROAD_SAFETY": "повелительное наклонение и дорожные инструкции",
     "FUTURE_ARRANGEMENT": "Present Continuous для договорённости на будущее",
     "FUTURE_PLANS": "be going to для заранее существующего плана",
     "FUTURE_DECISIONS": "will для решения, принятого в момент речи",
@@ -88,7 +90,7 @@ LEXICAL_ERROR_INFO = {
     "NUM_RECOGNITION": ("числительные", False),
     "FAMILY_DAUGHTER_HUSBAND": ("семья", False),
     "FEELINGS_APPEARANCE": ("чувства и внешность", False),
-    "DOLL_LAMP": ("игрушки и предметы дома", False),
+    "DOLL_BALL": ("игрушки и чтение слов", False),
     "ACTION_VOCABULARY": ("одежда и повседневные действия", False),
     "TALL_SHORT": ("внешность и описание предметов", False),
     "FAST_LONG": ("описание движения", False),
@@ -115,6 +117,14 @@ LEXICAL_ERROR_INFO = {
     "HIGH_LOUD": ("действия и их описание", False),
     "CONTROL_FIGHT": ("действия и управление механизмами", False),
     "SHOULD_AND_HOUSEWORK": ("домашние обязанности", True),
+    "FREE_TIME_ACTIVITY": ("свободное время", False),
+    "REFLEXIVE_CRIME_ACTIONS": ("действия и опасные ситуации", True),
+    "SHOULD_HOUSEWORK": ("домашние обязанности", True),
+    "WANTS_TO_HOUSEWORK_EMOTIONS": ("домашние обязанности и эмоции", True),
+    "ROAD_SAFETY_ROUTE": ("безопасность на дороге и направления", False),
+    "IMPERATIVE_ROAD_SAFETY": ("безопасность на дороге и направления", True),
+    "PLAN_VS_WILL_GARDEN": ("дом и сад", True),
+    "DECISION_VS_ARRANGEMENT_ACTIONS": ("действия и опасные ситуации", True),
 }
 
 # The selected distractor mentions vocabulary only as a possible cause, so it
@@ -126,7 +136,7 @@ POSSIBLE_LEXICAL_ERRORS = {
 LEXICAL_QUESTION_IDS = {
     "1-2": {1, 2},
     "3-4": {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20},
-    "5-6": {1, 2, 3, 4, 5, 6, 8, 9, 10, 14, 16},
+    "5-6": {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 16, 17, 19, 20},
 }
 
 

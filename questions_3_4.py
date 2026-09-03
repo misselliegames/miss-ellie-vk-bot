@@ -33,7 +33,7 @@ QUESTIONS_3_4 = [
         "options": [
             {"text": "He is selling a doll.", "correct": True},
             {"text": "He sells a doll now.", "correct": False, "error": "PRESENT_SIMPLE_FOR_NOW", "meaning": "путает Present Simple и Present Continuous"},
-            {"text": "He is selling a lamp.", "correct": False, "error": "DOLL_LAMP", "meaning": "грамматика правильная, но путает doll / lamp"},
+            {"text": "He is selling a ball.", "correct": False, "error": "DOLL_BALL", "meaning": "грамматика правильная, но путает doll / ball; возможно, не различает b / d при чтении или не знает слова по теме игрушек"},
         ],
     },
     {
