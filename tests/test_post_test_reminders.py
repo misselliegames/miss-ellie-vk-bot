@@ -18,7 +18,6 @@ class PostTestReminderTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp.name) / "sessions.sqlite3"
         bot.SESSION_STORE = SessionStore(self.db_path)
-        bot.SUBSCRIBERS_CSV_PATH = Path(self.temp.name) / "subscribers.csv"
         bot.SESSIONS.clear()
         self.messages = []
         bot.send = lambda user_id, text, keyboard=None, attachment=None, random_id=None: self.messages.append({
@@ -140,6 +139,7 @@ class PostTestReminderTests(unittest.TestCase):
                 ("button", bot.GIFTS_LABEL, "primary"),
                 ("openlink", bot.REVIEWS_LABEL, bot.REVIEWS_URL),
                 ("openlink", bot.TRIAL_LABEL, bot.TRIAL_URL),
+                ("openlink", bot.NEWS_MENU_LABEL, bot.NEWS_SUBSCRIPTION_URL),
             ],
             actions,
         )

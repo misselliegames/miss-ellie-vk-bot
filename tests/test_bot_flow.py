@@ -18,7 +18,6 @@ class BotFlowTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         bot.SESSION_STORE = SessionStore(Path(self.temp.name) / "sessions.sqlite3")
-        bot.SUBSCRIBERS_CSV_PATH = Path(self.temp.name) / "subscribers.csv"
         bot.SESSIONS.clear()
         self.messages = []
         bot.send = lambda user_id, text, keyboard=None, attachment=None, random_id=None: self.messages.append({
@@ -29,7 +28,6 @@ class BotFlowTests(unittest.TestCase):
             "random_id": random_id,
         }) or 1
         bot.upload_photo = lambda _path: "photo1_1"
-        bot.update_subscriber = lambda _user_id, **_updates: None
         bot.generate_parent_report = lambda _user_id, summary: f"REPORT {summary['route']}"
         bot.build_trial_lesson_link = lambda _emeralds: "https://example.com/trial"
 
@@ -100,12 +98,17 @@ class BotFlowTests(unittest.TestCase):
                 ("button", bot.GIFTS_LABEL, "secondary"),
                 ("button", bot.REVIEWS_LABEL, "secondary"),
                 ("button", bot.RESTART_LABEL, "secondary"),
+                ("openlink", bot.NEWS_MENU_LABEL, bot.NEWS_SUBSCRIPTION_URL),
             ],
             [action for action in final_actions if action[0] != "line"],
         )
         self.assertNotIn(
             bot.MAIN_MENU_LABEL,
             [action[1] for action in final_actions if action[0] == "button"],
+        )
+        self.assertEqual(
+            "Что хотите сделать дальше? Здесь можно выбрать подарки, посмотреть отзывы, записаться на пробный урок, подписаться на новости и предложения от Элли или пройти тест заново.",
+            self.messages[-1]["text"],
         )
 
         bot.on_message(user_id, bot.FINAL_TRIAL_LABEL)
@@ -130,13 +133,12 @@ class BotFlowTests(unittest.TestCase):
             "Но даже здесь есть пара волшебных бумажек — обычная бюрократия."
         ))
 
+        message_count = len(self.messages)
         bot.on_message(user_id, "Согласен(на), идём дальше")
         self.assertTrue(session["pd_consent"])
-        self.assertEqual("await_marketing_consent", session["stage"])
-        bot.on_message(user_id, "Нет, спасибо")
-        self.assertFalse(session["marketing_consent"])
         self.assertEqual("await_class", session["stage"])
         self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
+        self.assertEqual(message_count + 2, len(self.messages))
 
         bot.on_message(user_id, "3–4 класс")
         self.assertEqual("3-4", session["class"])
@@ -147,7 +149,7 @@ class BotFlowTests(unittest.TestCase):
         self.assertEqual("question", session["stage"])
         self.assertIn("Задание 1/20", self.messages[-1]["text"])
 
-    def test_main_menu_has_exact_four_actions_and_links(self):
+    def test_main_menu_has_expected_actions_and_links(self):
         user_id = 610
         bot.show_main_menu(user_id)
         actions = self._keyboard_actions(self.messages[-1])
@@ -157,27 +159,20 @@ class BotFlowTests(unittest.TestCase):
                 ("button", bot.GIFTS_LABEL, "primary"),
                 ("openlink", bot.REVIEWS_LABEL, bot.REVIEWS_URL),
                 ("openlink", bot.TRIAL_LABEL, bot.TRIAL_URL),
+                ("openlink", bot.NEWS_MENU_LABEL, bot.NEWS_SUBSCRIPTION_URL),
             ],
             [action for action in actions if action[0] != "line"],
         )
 
-    def test_navigation_does_not_skip_unanswered_marketing_consent(self):
+    def test_pd_consent_goes_directly_to_class_selection(self):
         user_id = 615
         bot.on_message(user_id, "старт")
         bot.on_message(user_id, bot.TEST_START_LABEL)
         bot.on_message(user_id, "Согласен(на), идём дальше")
         session = bot.SESSIONS[user_id]
-        self.assertEqual("await_marketing_consent", session["stage"])
-
-        bot.on_message(user_id, bot.GIFTS_LABEL)
-        bot.on_message(user_id, "3–4 класс")
-        self.assertEqual("await_marketing_consent", session["stage"])
-        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
-        bot.on_message(user_id, bot.TEST_MENU_LABEL)
-        bot.on_message(user_id, bot.TEST_START_LABEL)
-
-        self.assertEqual("await_marketing_consent", session["stage"])
-        self.assertIn("Хотите иногда получать", self.messages[-1]["text"])
+        self.assertTrue(session["pd_consent"])
+        self.assertEqual("await_class", session["stage"])
+        self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
 
     def test_gifts_are_selected_independently_and_all_six_links_are_exact(self):
         user_id = 620
@@ -220,7 +215,6 @@ class BotFlowTests(unittest.TestCase):
             "stage": "done",
             "completed": True,
             "pd_consent": True,
-            "marketing_consent": False,
             "class": "3-4",
             "question_index": 20,
             "answers": [{"question_id": 1, "correct": True}],
@@ -243,7 +237,6 @@ class BotFlowTests(unittest.TestCase):
         self.assertEqual({}, new_session["option_orders"])
         self.assertEqual({}, new_session["shop_selected"])
         self.assertTrue(new_session["pd_consent"])
-        self.assertFalse(new_session["marketing_consent"])
         self.assertFalse(new_session["completed"])
         restored = bot.SESSION_STORE.load_all()[user_id]
         self.assertEqual("await_class", restored["stage"])
@@ -353,25 +346,6 @@ class BotFlowTests(unittest.TestCase):
         self.assertEqual(8, len(restored["answers"]))
         self.assertEqual([2, 0, 1], restored["option_orders"][9])
         self.assertIn("Задание 9/20", self.messages[-1]["text"])
-
-    def test_legacy_saved_consent_also_skips_legal_steps_on_restart(self):
-        user_id = 650
-        bot.SUBSCRIBERS_CSV_PATH.write_text(
-            "vk_id,pd_consent,marketing_consent\n650,true,false\n",
-            encoding="utf-8",
-        )
-        session = bot.blank_session()
-        session.pop("pd_consent")
-        session.pop("marketing_consent")
-        session.update({"stage": "done", "completed": True})
-        bot.SESSIONS[user_id] = session
-
-        bot.on_message(user_id, bot.RESTART_LABEL)
-        restarted = bot.SESSIONS[user_id]
-        self.assertEqual("await_class", restarted["stage"])
-        self.assertEqual(bot.CLASS_SELECTION_TEXT, self.messages[-1]["text"])
-        self.assertTrue(restarted["pd_consent"])
-        self.assertFalse(restarted["marketing_consent"])
 
     def test_due_reminders_resume_current_question_and_survive_restart(self):
         user_id = 700

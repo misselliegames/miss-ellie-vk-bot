@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import csv
 import random
 import threading
 import time
@@ -49,16 +48,10 @@ POST_TEST_REMINDER_DELAYS = (20 * 60, 3 * 60 * 60, 24 * 60 * 60)
 
 POLICY_URL = "https://disk.yandex.ru/i/CmjPe-bGH87wsA"
 PD_CONSENT_URL = "https://disk.yandex.ru/i/TORpX__fuJmnxQ"
-MARKETING_CONSENT_URL = "https://disk.yandex.ru/i/_9vaNdyTI0nFRA"
-SUBSCRIBERS_CSV_PATH = Path(os.getenv("SUBSCRIBERS_CSV_PATH", "").strip() or "data/subscribers.csv")
-if not SUBSCRIBERS_CSV_PATH.is_absolute():
-    SUBSCRIBERS_CSV_PATH = BASE_DIR / SUBSCRIBERS_CSV_PATH
-
-SUBSCRIBER_FIELDS = [
-    "vk_id", "pd_consent", "pd_consent_at", "marketing_consent",
-    "marketing_consent_at", "marketing_revoked_at", "class", "emeralds",
-    "completed_at", "policy_url", "pd_consent_url", "marketing_consent_url",
-]
+NEWS_SUBSCRIPTION_URL = os.getenv(
+    "NEWS_SUBSCRIPTION_URL",
+    "https://vk.ru/app5898182_-192852744#s=3167778",
+).strip()
 START_COMMANDS = {"начать", "начать тест", "тест", "старт", "/start"}
 RESTART_COMMANDS = {"заново", "пройти тест заново", "🔄 пройти тест заново"}
 ELLIE_SCREEN_NAME = "ellie_englie"
@@ -72,6 +65,7 @@ FINAL_TRIAL_LABEL = "💚 ЗАПИСАТЬСЯ НА ПРОБНЫЙ УРОК К �
 RESTART_LABEL = "🔄 ПРОЙТИ ТЕСТ ЗАНОВО"
 MAIN_MENU_LABEL = "🏠 ГЛАВНОЕ МЕНЮ"
 CONTINUE_TEST_LABEL = "Продолжить тест"
+NEWS_MENU_LABEL = "📬 Узнавать новости и предложения от Элли"
 
 REVIEWS_URL = "https://vk.ru/feed?w=narrative15117889_8960"
 TRIAL_URL = "https://vk.me/ellie_englie"
@@ -160,7 +154,7 @@ UNFINISHED_TEST_STAGES = QUESTION_STAGES | {
     "await_class", "await_handoff", "child_intro_retry", "await_go",
     "shop", "shop_finishing", "await_parent",
 }
-RESUMABLE_START_STAGES = UNFINISHED_TEST_STAGES | {"await_pd_consent", "await_marketing_consent"}
+RESUMABLE_START_STAGES = UNFINISHED_TEST_STAGES | {"await_pd_consent"}
 ROUTE_LABELS = {
     "1–2 класс": "1-2", "1-2 класс": "1-2",
     "3–4 класс": "3-4", "3-4 класс": "3-4",
@@ -221,7 +215,6 @@ def blank_session():
         "post_test_completed_at": None,
         "post_test_reminders_sent": 0,
         "pd_consent": False,
-        "marketing_consent": None,
     }
 
 
@@ -331,6 +324,8 @@ def main_menu_keyboard(has_unfinished_test=False):
     kb.add_openlink_button(REVIEWS_LABEL, REVIEWS_URL)
     kb.add_line()
     kb.add_openlink_button(TRIAL_LABEL, TRIAL_URL)
+    kb.add_line()
+    kb.add_openlink_button(NEWS_MENU_LABEL, NEWS_SUBSCRIPTION_URL)
     return kb
 
 
@@ -343,6 +338,8 @@ def final_menu_keyboard():
     kb.add_button(REVIEWS_LABEL, color=VkKeyboardColor.SECONDARY)
     kb.add_line()
     kb.add_button(RESTART_LABEL, color=VkKeyboardColor.SECONDARY)
+    kb.add_line()
+    kb.add_openlink_button(NEWS_MENU_LABEL, NEWS_SUBSCRIPTION_URL)
     return kb
 
 
@@ -391,78 +388,15 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def update_subscriber(user_id, **updates):
-    path = SUBSCRIBERS_CSV_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    records = {}
-    if path.exists():
-        with path.open("r", encoding="utf-8-sig", newline="") as source:
-            for row in csv.DictReader(source):
-                if row.get("vk_id"):
-                    records[row["vk_id"]] = {field: row.get(field, "") for field in SUBSCRIBER_FIELDS}
-
-    key = str(user_id)
-    record = records.get(key, {field: "" for field in SUBSCRIBER_FIELDS})
-    record.update({
-        "vk_id": key,
-        "policy_url": POLICY_URL,
-        "pd_consent_url": PD_CONSENT_URL,
-        "marketing_consent_url": MARKETING_CONSENT_URL,
-    })
-    for field, value in updates.items():
-        if field in SUBSCRIBER_FIELDS:
-            if isinstance(value, bool):
-                value = "true" if value else "false"
-            record[field] = str(value)
-    records[key] = record
-
-    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temp_path.open("w", encoding="utf-8-sig", newline="") as target:
-            writer = csv.DictWriter(target, fieldnames=SUBSCRIBER_FIELDS)
-            writer.writeheader()
-            writer.writerows(records.values())
-        os.replace(temp_path, path)
-    finally:
-        if temp_path.exists():
-            temp_path.unlink()
-
-
-def read_subscriber(user_id):
-    if not SUBSCRIBERS_CSV_PATH.exists():
-        return {}
-    try:
-        with SUBSCRIBERS_CSV_PATH.open("r", encoding="utf-8-sig", newline="") as source:
-            for row in csv.DictReader(source):
-                if row.get("vk_id") == str(user_id):
-                    return row
-    except Exception as exc:
-        print(f"SUBSCRIBER_READ_FAILED: {type(exc).__name__}")
-    return {}
-
-
-def saved_consent_state(user_id):
+def saved_pd_consent(user_id):
     session = SESSIONS.get(user_id) or {}
-    pd_consent = session.get("pd_consent") is True
-    marketing_consent = session.get("marketing_consent")
-    if pd_consent and marketing_consent is not None:
-        return pd_consent, marketing_consent
-
-    record = read_subscriber(user_id)
-    if not pd_consent:
-        pd_consent = str(record.get("pd_consent", "")).lower() == "true"
-    if marketing_consent is None:
-        stored_marketing = str(record.get("marketing_consent", "")).lower()
-        if stored_marketing in {"true", "false"}:
-            marketing_consent = stored_marketing == "true"
-    return pd_consent, marketing_consent
+    return session.get("pd_consent") is True
 
 
 def replace_with_clean_test_session(user_id):
-    pd_consent, marketing_consent = saved_consent_state(user_id)
+    pd_consent = saved_pd_consent(user_id)
     session = blank_session()
     session["pd_consent"] = pd_consent
-    session["marketing_consent"] = marketing_consent
     session["stage"] = "await_class"
     SESSIONS[user_id] = session
     persist_session(user_id)
@@ -630,14 +564,6 @@ def finish_shop(user_id):
     finally:
         if out.exists():
             out.unlink()
-    update_subscriber(
-        user_id,
-        **{
-            "class": s.get("class", "1-2"),
-            "emeralds": s["emeralds"],
-            "completed_at": utc_now(),
-        },
-    )
     send(user_id, "🐾 А теперь позови маму или папу и передай телефон. Я подготовил результат диагностики.", keyboard=test_step_keyboard("Родитель здесь", VkKeyboardColor.PRIMARY))
     s["stage"] = "await_parent"
     persist_session(user_id)
@@ -736,8 +662,6 @@ def resume_unfinished_flow(user_id):
     stage = session.get("stage")
     if stage == "await_pd_consent":
         start_flow(user_id)
-    elif stage == "await_marketing_consent":
-        send_marketing_consent(user_id)
     elif stage == "await_class":
         send_class_selection(user_id)
     elif stage == "await_handoff":
@@ -767,8 +691,7 @@ def begin_test(user_id):
     if session and not session.get("completed") and session.get("stage") in RESUMABLE_START_STAGES:
         resume_unfinished_flow(user_id)
         return
-    pd_consent, _marketing_consent = saved_consent_state(user_id)
-    if pd_consent:
+    if saved_pd_consent(user_id):
         replace_with_clean_test_session(user_id)
         send_class_selection(user_id)
     else:
@@ -777,7 +700,7 @@ def begin_test(user_id):
 
 def restart_test(user_id):
     session = SESSIONS.get(user_id)
-    if session and session.get("completed") and saved_consent_state(user_id)[0]:
+    if session and session.get("completed") and saved_pd_consent(user_id):
         replace_with_clean_test_session(user_id)
         send_class_selection(user_id)
         return
@@ -852,7 +775,7 @@ def show_link_section(user_id, title, label, url):
 def send_final_menu(user_id):
     send(
         user_id,
-        "Что хотите сделать дальше? Здесь можно выбрать подарки, посмотреть отзывы, записаться на пробный урок или пройти тест заново.",
+        "Что хотите сделать дальше? Здесь можно выбрать подарки, посмотреть отзывы, записаться на пробный урок, подписаться на новости и предложения от Элли или пройти тест заново.",
         keyboard=final_menu_keyboard(),
     )
 
@@ -869,19 +792,6 @@ def start_flow(user_id):
          "Если всё хорошо — идём дальше 👇",
          keyboard=two_buttons("Согласен(на), идём дальше", "Не согласен(на)"))
     s["stage"] = "await_pd_consent"
-    persist_session(user_id)
-
-
-def send_marketing_consent(user_id):
-    send(
-        user_id,
-        "И ещё один вопрос от Стража ворот 😊\n\n"
-        "Хотите иногда получать от Miss Ellie полезные материалы, новости о занятиях и специальные предложения?\n\n"
-        "Это совершенно необязательно и никак не влияет на прохождение теста.\n\n"
-        f"📄 Согласие на получение рекламных и информационных сообщений:\n{MARKETING_CONSENT_URL}",
-        keyboard=two_buttons("Да, хочу получать", "Нет, спасибо"),
-    )
-    SESSIONS[user_id]["stage"] = "await_marketing_consent"
     persist_session(user_id)
 
 
@@ -953,11 +863,6 @@ def child_intro(user_id):
 def on_message(user_id, text):
     lowered = text.strip().lower()
     if lowered == "стоп":
-        update_subscriber(
-            user_id,
-            marketing_consent=False,
-            marketing_revoked_at=utc_now(),
-        )
         send(user_id, "Готово! Рекламные сообщения отключены 💚")
         return
 
@@ -1022,15 +927,12 @@ def on_message(user_id, text):
         return
     if stage == "await_pd_consent":
         if lowered == "согласен(на), идём дальше":
-            now = utc_now()
             s["pd_consent"] = True
             persist_session(user_id)
-            update_subscriber(user_id, pd_consent=True, pd_consent_at=now)
-            send_marketing_consent(user_id)
+            send_instruction(user_id)
         elif lowered == "не согласен(на)":
             s["pd_consent"] = False
             persist_session(user_id)
-            update_subscriber(user_id, pd_consent=False, pd_consent_at="")
             send(
                 user_id,
                 "Понимаю 💚 Без согласия провести персональную диагностику не получится. Если передумаете, вернитесь в Главное меню.",
@@ -1040,33 +942,10 @@ def on_message(user_id, text):
             persist_session(user_id)
         else:
             start_flow(user_id)
-    elif stage == "await_marketing_consent":
-        if lowered == "да, хочу получать":
-            s["marketing_consent"] = True
-            persist_session(user_id)
-            update_subscriber(
-                user_id,
-                marketing_consent=True,
-                marketing_consent_at=utc_now(),
-                marketing_revoked_at="",
-            )
-            send_instruction(user_id)
-        elif lowered == "нет, спасибо":
-            s["marketing_consent"] = False
-            persist_session(user_id)
-            update_subscriber(
-                user_id,
-                marketing_consent=False,
-                marketing_consent_at="",
-            )
-            send_instruction(user_id)
-        else:
-            send_marketing_consent(user_id)
     elif stage == "await_class":
         route = ROUTE_LABELS.get(lowered)
         if route:
             s["class"] = route
-            update_subscriber(user_id, **{"class": route})
             persist_session(user_id)
             send_handoff(user_id)
         else:
