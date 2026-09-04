@@ -94,11 +94,19 @@ class BotFlowTests(unittest.TestCase):
         self.assertTrue(any(message["text"].startswith("REPORT") for message in self.messages))
         self.assertTrue(any("пробный урок" in message["text"] for message in self.messages))
         final_actions = self._keyboard_actions(self.messages[-1])
-        self.assertIn(("button", bot.GIFTS_LABEL, "primary"), final_actions)
-        self.assertIn(("openlink", bot.REVIEWS_LABEL, bot.REVIEWS_URL), final_actions)
-        self.assertIn(("openlink", bot.TRIAL_LABEL, bot.TRIAL_URL), final_actions)
-        self.assertIn(("button", bot.RESTART_LABEL, "positive"), final_actions)
-        self.assertIn(("button", bot.MAIN_MENU_LABEL, "secondary"), final_actions)
+        self.assertEqual(
+            [
+                ("button", bot.FINAL_TRIAL_LABEL, "positive"),
+                ("button", bot.GIFTS_LABEL, "secondary"),
+                ("button", bot.REVIEWS_LABEL, "secondary"),
+                ("button", bot.RESTART_LABEL, "secondary"),
+                ("button", bot.MAIN_MENU_LABEL, "secondary"),
+            ],
+            [action for action in final_actions if action[0] != "line"],
+        )
+
+        bot.on_message(user_id, bot.FINAL_TRIAL_LABEL)
+        self.assertIn(bot.TRIAL_URL, self.messages[-1]["text"])
 
     def test_new_user_follows_approved_start_consent_and_class_flow(self):
         user_id = 600
@@ -266,15 +274,31 @@ class BotFlowTests(unittest.TestCase):
         self.assertEqual(5, session["question_index"])
         self.assertEqual(2, session["emeralds"])
         self.assertIn("Задание 6/20", self.messages[-1]["text"])
+        self.assertIn(
+            ("button", bot.MAIN_MENU_LABEL, "secondary"),
+            self._keyboard_actions(self.messages[-1]),
+        )
 
         bot.on_message(user_id, bot.MAIN_MENU_LABEL)
         self.assertEqual("question", session["stage"])
         self.assertEqual(5, session["question_index"])
         self.assertEqual("Главное меню", self.messages[-1]["text"])
         self.assertEqual(
-            [bot.TEST_MENU_LABEL, bot.GIFTS_LABEL],
+            [bot.CONTINUE_TEST_LABEL, bot.GIFTS_LABEL],
             [action[1] for action in self._keyboard_actions(self.messages[-1]) if action[0] == "button"],
         )
+
+        restored = bot.SESSION_STORE.load_all()[user_id]
+        self.assertEqual("question", restored["stage"])
+        self.assertEqual(5, restored["question_index"])
+        self.assertEqual(2, restored["emeralds"])
+        self.assertEqual(session["answers"], restored["answers"])
+
+        bot.on_message(user_id, bot.CONTINUE_TEST_LABEL)
+        self.assertEqual("question", session["stage"])
+        self.assertEqual(5, session["question_index"])
+        self.assertEqual(2, session["emeralds"])
+        self.assertIn("Задание 6/20", self.messages[-1]["text"])
 
         bot.on_message(user_id, bot.GIFTS_LABEL)
         self.assertEqual("question", session["stage"])
@@ -291,6 +315,41 @@ class BotFlowTests(unittest.TestCase):
         self.assertEqual("question", session["stage"])
         self.assertEqual(5, session["question_index"])
         self.assertIn("Задание 6/20", self.messages[-1]["text"])
+
+    def test_main_menu_resume_survives_session_reload(self):
+        user_id = 645
+        session = bot.blank_session()
+        session.update({
+            "stage": "question",
+            "class": "3-4",
+            "question_index": 8,
+            "answers": [
+                {"question_id": question_id, "correct": question_id % 2 == 0}
+                for question_id in range(1, 9)
+            ],
+            "emeralds": 12,
+            "pd_consent": True,
+        })
+        session["option_orders"][9] = [2, 0, 1]
+        bot.SESSIONS[user_id] = session
+
+        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
+        self.assertIn(
+            ("button", bot.CONTINUE_TEST_LABEL, "positive"),
+            self._keyboard_actions(self.messages[-1]),
+        )
+
+        bot.SESSIONS.clear()
+        bot.SESSIONS.update(bot.SESSION_STORE.load_all())
+        restored = bot.SESSIONS[user_id]
+        bot.on_message(user_id, bot.CONTINUE_TEST_LABEL)
+
+        self.assertEqual("question", restored["stage"])
+        self.assertEqual(8, restored["question_index"])
+        self.assertEqual(12, restored["emeralds"])
+        self.assertEqual(8, len(restored["answers"]))
+        self.assertEqual([2, 0, 1], restored["option_orders"][9])
+        self.assertIn("Задание 9/20", self.messages[-1]["text"])
 
     def test_legacy_saved_consent_also_skips_legal_steps_on_restart(self):
         user_id = 650

@@ -68,8 +68,10 @@ TEST_START_LABEL = "ПРОЙТИ ТЕСТ"
 GIFTS_LABEL = "🎁 ПОДАРКИ"
 REVIEWS_LABEL = "⭐ ОТЗЫВЫ"
 TRIAL_LABEL = "💚 ЗАПИСАТЬСЯ НА ПРОБНЫЙ УРОК"
+FINAL_TRIAL_LABEL = "💚 ЗАПИСАТЬСЯ НА ПРОБНЫЙ УРОК К ЭЛЛИ"
 RESTART_LABEL = "🔄 ПРОЙТИ ТЕСТ ЗАНОВО"
 MAIN_MENU_LABEL = "🏠 ГЛАВНОЕ МЕНЮ"
+CONTINUE_TEST_LABEL = "Продолжить тест"
 
 REVIEWS_URL = "https://vk.ru/feed?w=narrative15117889_8960"
 TRIAL_URL = "https://vk.me/ellie_englie"
@@ -270,6 +272,14 @@ def one_button(label, color=VkKeyboardColor.PRIMARY):
     return kb
 
 
+def test_step_keyboard(label, color=VkKeyboardColor.PRIMARY):
+    kb = VkKeyboard(one_time=True)
+    kb.add_button(label, color=color)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
+    return kb
+
+
 def two_buttons(first_label, second_label):
     kb = VkKeyboard(one_time=True)
     kb.add_button(first_label, color=VkKeyboardColor.POSITIVE)
@@ -289,6 +299,8 @@ def answer_keyboard():
     kb.add_button("A", color=VkKeyboardColor.PRIMARY)
     kb.add_button("B", color=VkKeyboardColor.PRIMARY)
     kb.add_button("C", color=VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
     return kb
 
 
@@ -299,12 +311,15 @@ def class_keyboard():
     kb.add_button("3–4 класс", color=VkKeyboardColor.POSITIVE)
     kb.add_line()
     kb.add_button("5–6 класс", color=VkKeyboardColor.POSITIVE)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
     return kb
 
 
-def main_menu_keyboard():
+def main_menu_keyboard(has_unfinished_test=False):
     kb = VkKeyboard(one_time=False)
-    kb.add_button(TEST_MENU_LABEL, color=VkKeyboardColor.POSITIVE)
+    first_label = CONTINUE_TEST_LABEL if has_unfinished_test else TEST_MENU_LABEL
+    kb.add_button(first_label, color=VkKeyboardColor.POSITIVE)
     kb.add_line()
     kb.add_button(GIFTS_LABEL, color=VkKeyboardColor.PRIMARY)
     kb.add_line()
@@ -316,13 +331,13 @@ def main_menu_keyboard():
 
 def final_menu_keyboard():
     kb = VkKeyboard(one_time=False)
-    kb.add_button(GIFTS_LABEL, color=VkKeyboardColor.PRIMARY)
+    kb.add_button(FINAL_TRIAL_LABEL, color=VkKeyboardColor.POSITIVE)
     kb.add_line()
-    kb.add_openlink_button(REVIEWS_LABEL, REVIEWS_URL)
+    kb.add_button(GIFTS_LABEL, color=VkKeyboardColor.SECONDARY)
     kb.add_line()
-    kb.add_openlink_button(TRIAL_LABEL, TRIAL_URL)
+    kb.add_button(REVIEWS_LABEL, color=VkKeyboardColor.SECONDARY)
     kb.add_line()
-    kb.add_button(RESTART_LABEL, color=VkKeyboardColor.POSITIVE)
+    kb.add_button(RESTART_LABEL, color=VkKeyboardColor.SECONDARY)
     kb.add_line()
     kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
     return kb
@@ -488,7 +503,7 @@ def send_question(user_id):
         send(
             user_id,
             "🐾 Тотошка опять зацепил провод! Но изумруды на месте 😅 Нажми «Продолжить», и попробуем ещё раз.",
-            keyboard=one_button("Продолжить", VkKeyboardColor.PRIMARY),
+            keyboard=test_step_keyboard("Продолжить", VkKeyboardColor.PRIMARY),
         )
 
 
@@ -559,6 +574,8 @@ def shop_keyboard(items):
         kb.add_button(f"{i+1}. {item['title']} — {item['price']} 💎", color=VkKeyboardColor.POSITIVE)
         if i != len(items) - 1:
             kb.add_line()
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
     return kb
 
 
@@ -618,7 +635,7 @@ def finish_shop(user_id):
             "completed_at": utc_now(),
         },
     )
-    send(user_id, "🐾 А теперь позови маму или папу и передай телефон. Я подготовил результат диагностики.", keyboard=one_button("Родитель здесь", VkKeyboardColor.PRIMARY))
+    send(user_id, "🐾 А теперь позови маму или папу и передай телефон. Я подготовил результат диагностики.", keyboard=test_step_keyboard("Родитель здесь", VkKeyboardColor.PRIMARY))
     s["stage"] = "await_parent"
     persist_session(user_id)
 
@@ -734,7 +751,7 @@ def resume_unfinished_flow(user_id):
         send(
             user_id,
             "🐾 Передайте телефон маме или папе и нажмите кнопку.",
-            keyboard=one_button("Родитель здесь", VkKeyboardColor.PRIMARY),
+            keyboard=test_step_keyboard("Родитель здесь", VkKeyboardColor.PRIMARY),
         )
 
 
@@ -780,7 +797,15 @@ def show_main_menu(user_id):
         session["stage"] = "main_menu"
     session["navigation_section"] = "main_menu"
     persist_session(user_id)
-    send(user_id, "Главное меню", keyboard=main_menu_keyboard())
+    has_unfinished_test = (
+        not session.get("completed")
+        and session.get("stage") in UNFINISHED_TEST_STAGES
+    )
+    send(
+        user_id,
+        "Главное меню",
+        keyboard=main_menu_keyboard(has_unfinished_test),
+    )
 
 
 def show_gift_class_menu(user_id):
@@ -874,7 +899,7 @@ def send_handoff(user_id):
     send(
         user_id,
         "Отлично! Дальше отдайте телефон ребёнку. Не помогайте — он справится сам 😊\n\nПередали?",
-        keyboard=one_button("Да", VkKeyboardColor.POSITIVE),
+        keyboard=test_step_keyboard("Да", VkKeyboardColor.POSITIVE),
     )
     SESSIONS[user_id]["stage"] = "await_handoff"
     persist_session(user_id)
@@ -905,7 +930,7 @@ def child_intro(user_id):
             send(
                 user_id,
                 "🐾 Тотошка на секунду потерялся! Нажми «Попробовать ещё раз».",
-                keyboard=one_button("Попробовать ещё раз", VkKeyboardColor.PRIMARY),
+                keyboard=test_step_keyboard("Попробовать ещё раз", VkKeyboardColor.PRIMARY),
             )
             return
         finally:
@@ -917,7 +942,7 @@ def child_intro(user_id):
          "Но английский язык открывает дверь в любой мир, и сейчас ты сможешь помочь Тотошке!\n\n"
          "Правильно отвечай на вопросы, копи изумрудики 💎, и в конце доберёшься до Изумрудного Города в мире Minecraft.\n\n"
          "Вперёд!",
-         keyboard=one_button("Вперёд!", VkKeyboardColor.POSITIVE), attachment=attachment)
+         keyboard=test_step_keyboard("Вперёд!", VkKeyboardColor.POSITIVE), attachment=attachment)
     s["stage"] = "await_go"
     persist_session(user_id)
 
@@ -967,7 +992,11 @@ def on_message(user_id, text):
         show_link_section(user_id, "Отзывы", REVIEWS_LABEL, REVIEWS_URL)
         return
 
-    if lowered in {"записаться на пробный урок", TRIAL_LABEL.lower()}:
+    if lowered in {
+        "записаться на пробный урок",
+        TRIAL_LABEL.lower(),
+        FINAL_TRIAL_LABEL.lower(),
+    }:
         show_link_section(user_id, "Записаться на пробный урок", TRIAL_LABEL, TRIAL_URL)
         return
 
