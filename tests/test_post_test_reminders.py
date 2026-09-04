@@ -81,6 +81,10 @@ class PostTestReminderTests(unittest.TestCase):
         self.assertEqual(1, bot.run_due_post_test_reminders(base + timedelta(minutes=20)))
         self.assertEqual(bot.POST_TEST_REMINDERS[0][0], self.messages[-1]["text"])
         self.assertIn(("button", "Забрать подарок", "primary"), self._actions(self.messages[-1]))
+        self.assertIn(
+            ("button", bot.MAIN_MENU_LABEL, "secondary"),
+            self._actions(self.messages[-1]),
+        )
 
         bot.on_message(702, "Забрать подарок")
         self.assertEqual("Для какого класса выбрать подарок?", self.messages[-1]["text"])
@@ -92,11 +96,19 @@ class PostTestReminderTests(unittest.TestCase):
             ("openlink", "Записаться на пробный", "https://vk.me/ellie_englie"),
             self._actions(self.messages[-1]),
         )
+        self.assertIn(
+            ("button", bot.MAIN_MENU_LABEL, "secondary"),
+            self._actions(self.messages[-1]),
+        )
 
         self.assertEqual(1, bot.run_due_post_test_reminders(base + timedelta(hours=24)))
         self.assertEqual(bot.POST_TEST_REMINDERS[2][0], self.messages[-1]["text"])
         self.assertIn(
             ("openlink", "Записаться на пробный", "https://vk.me/ellie_englie"),
+            self._actions(self.messages[-1]),
+        )
+        self.assertIn(
+            ("button", bot.MAIN_MENU_LABEL, "secondary"),
             self._actions(self.messages[-1]),
         )
         self.assertEqual(3, session["post_test_reminders_sent"])
@@ -106,6 +118,35 @@ class PostTestReminderTests(unittest.TestCase):
         self.assertEqual(3, restored["post_test_reminders_sent"])
         bot.SESSIONS[702] = restored
         self.assertEqual(0, bot.run_due_post_test_reminders(base + timedelta(days=31)))
+
+    def test_post_test_main_menu_opens_exact_main_actions_without_duplicate(self):
+        user_id = 704
+        session = bot.blank_session()
+        session.update({
+            "stage": "done",
+            "completed": True,
+            "post_test_completed_at": datetime(2026, 9, 3, 10, 0, tzinfo=timezone.utc).isoformat(),
+        })
+        bot.SESSIONS[user_id] = session
+
+        bot.on_message(user_id, bot.MAIN_MENU_LABEL)
+        actions = [
+            action for action in self._actions(self.messages[-1])
+            if action[0] != "line"
+        ]
+        self.assertEqual(
+            [
+                ("button", bot.TEST_MENU_LABEL, "positive"),
+                ("button", bot.GIFTS_LABEL, "primary"),
+                ("openlink", bot.REVIEWS_LABEL, bot.REVIEWS_URL),
+                ("openlink", bot.TRIAL_LABEL, bot.TRIAL_URL),
+            ],
+            actions,
+        )
+        self.assertNotIn(
+            bot.MAIN_MENU_LABEL,
+            [action[1] for action in actions if action[0] == "button"],
+        )
 
     def test_parent_report_starts_post_test_clock_only_after_result_is_sent(self):
         base = datetime(2026, 9, 3, 10, 0, tzinfo=timezone.utc)

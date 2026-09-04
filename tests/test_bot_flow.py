@@ -100,9 +100,12 @@ class BotFlowTests(unittest.TestCase):
                 ("button", bot.GIFTS_LABEL, "secondary"),
                 ("button", bot.REVIEWS_LABEL, "secondary"),
                 ("button", bot.RESTART_LABEL, "secondary"),
-                ("button", bot.MAIN_MENU_LABEL, "secondary"),
             ],
             [action for action in final_actions if action[0] != "line"],
+        )
+        self.assertNotIn(
+            bot.MAIN_MENU_LABEL,
+            [action[1] for action in final_actions if action[0] == "button"],
         )
 
         bot.on_message(user_id, bot.FINAL_TRIAL_LABEL)

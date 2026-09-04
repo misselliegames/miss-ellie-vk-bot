@@ -288,9 +288,14 @@ def two_buttons(first_label, second_label):
     return kb
 
 
-def openlink_button(label, link):
+def post_test_reminder_keyboard(button_type, label):
     kb = VkKeyboard(one_time=False)
-    kb.add_openlink_button(label, link)
+    if button_type == "button":
+        kb.add_button(label, color=VkKeyboardColor.PRIMARY)
+    else:
+        kb.add_openlink_button(label, TRIAL_URL)
+    kb.add_line()
+    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
     return kb
 
 
@@ -338,8 +343,6 @@ def final_menu_keyboard():
     kb.add_button(REVIEWS_LABEL, color=VkKeyboardColor.SECONDARY)
     kb.add_line()
     kb.add_button(RESTART_LABEL, color=VkKeyboardColor.SECONDARY)
-    kb.add_line()
-    kb.add_button(MAIN_MENU_LABEL, color=VkKeyboardColor.SECONDARY)
     return kb
 
 
@@ -1174,11 +1177,7 @@ def run_due_post_test_reminders(now=None):
             random_id = reminder_random_id(session["session_id"], 101 + reminder_index)
             text, button_type, button_label = POST_TEST_REMINDERS[reminder_index]
         try:
-            keyboard = (
-                one_button(button_label, VkKeyboardColor.PRIMARY)
-                if button_type == "button"
-                else openlink_button(button_label, TRIAL_URL)
-            )
+            keyboard = post_test_reminder_keyboard(button_type, button_label)
             send(user_id, text, keyboard=keyboard, random_id=random_id)
             sent_count += 1
         except Exception as exc:

@@ -892,12 +892,18 @@ def vocabulary_paragraph(facts: dict) -> str:
             category = detail.get("vocabulary_category")
             if category in LEXICAL_THEME_PHRASES:
                 category_counts[category] = category_counts.get(category, 0) + 1
+        single_error_themes = []
         for category, count in category_counts.items():
             theme = LEXICAL_THEME_PHRASES[category]
             if count == 1:
-                paragraph += f" Возможно, ребёнок не помнит и другие слова {theme}."
+                single_error_themes.append(theme.removeprefix("по теме "))
             else:
                 paragraph += f" Несколько ошибок показывают, что ребёнок не помнит часть слов {theme}."
+        if len(single_error_themes) == 1:
+            paragraph += f" Возможно, ребёнок не помнит и другие слова по теме {single_error_themes[0]}."
+        elif single_error_themes:
+            themes = ", ".join(single_error_themes[:-1]) + " и " + single_error_themes[-1]
+            paragraph += f" Возможно, ребёнок не помнит и другие слова по темам {themes}."
         return paragraph
     return "В лексике трудности относятся к темам: " + ", ".join(categories) + "."
 

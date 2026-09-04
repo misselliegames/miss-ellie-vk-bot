@@ -46,7 +46,7 @@ QUESTIONS_3_4 = [
         "options": [
             {"text": "He’s getting dressed quickly.", "correct": True},
             {"text": "He gets dressed now.", "correct": False, "error": "PRESENT_SIMPLE_FOR_NOW", "meaning": "путает Present Simple и Present Continuous"},
-            {"text": "He’s cleaning the room.", "correct": False, "error": "ACTION_VOCABULARY", "meaning": "грамматика понята, но ребёнок не понимает действие; пробел по текущей лексике clothes / daily routine"},
+            {"text": "He’s cleaning the room.", "correct": False, "error": "ACTION_VOCABULARY", "meaning": "Грамматическую конструкцию Present Continuous для действия, происходящего сейчас, ребёнок усвоил и понимает, но не знает часть лексики по теме daily routine."},
         ],
     },
     {
