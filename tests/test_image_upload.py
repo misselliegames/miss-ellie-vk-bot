@@ -10,7 +10,7 @@ from tests.fake_vk import install
 
 install()
 import bot
-from image_upload import MessagePhotoUpload, log_upload_error
+from image_upload import EmptyPhotoUpload, MessagePhotoUpload, log_upload_error
 from PIL import Image
 
 
@@ -55,7 +55,8 @@ class ImageUploadTests(unittest.TestCase):
                 else:
                     uploader.http.post.return_value.json.return_value = {"photo": "[]"}
                 output = io.StringIO()
-                with contextlib.redirect_stdout(output), self.assertRaises((RuntimeError, ValueError)):
+                expected_error = EmptyPhotoUpload if stage == "empty" else RuntimeError
+                with contextlib.redirect_stdout(output), self.assertRaises(expected_error):
                     uploader.photo_messages(str(self.path), peer_id=123)
                 self.assertIn("stage=" + ("POST image" if stage == "empty" else stage), output.getvalue())
                 if stage == "empty":
@@ -130,3 +131,30 @@ class ImageUploadTests(unittest.TestCase):
             return [{"owner_id": 1, "id": 2}]
         with patch.object(bot.upload, "photo_messages", side_effect=upload), patch.object(bot.time, "sleep"):
             self.assertEqual("photo1_2", bot.upload_photo(original, 123))
+
+    def test_empty_original_skips_retries_and_immediately_uses_jpeg(self):
+        with patch.object(bot.upload, "photo_messages", side_effect=[
+            EmptyPhotoUpload("empty photo"), [{"owner_id": 1, "id": 2}],
+        ]) as photo, patch.object(bot.time, "sleep") as sleep:
+            self.assertEqual("photo1_2", bot.upload_photo(self.path, 123))
+            self.assertEqual(2, photo.call_count)
+            self.assertEqual(str(self.path), photo.call_args_list[0].kwargs["photos"])
+            self.assertTrue(photo.call_args_list[1].kwargs["photos"].endswith(".jpg"))
+            sleep.assert_not_called()
+
+    def test_empty_original_and_jpeg_immediately_use_document(self):
+        result = {"type": "doc", "doc": {"owner_id": 1, "id": 2}}
+        with patch.object(bot.upload, "photo_messages", side_effect=EmptyPhotoUpload("empty photo")) as photo, patch.object(bot.upload, "document_message", return_value=result) as document, patch.object(bot.time, "sleep") as sleep:
+            self.assertEqual("doc1_2", bot.upload_photo(self.path, 123))
+            self.assertEqual(2, photo.call_count)
+            document.assert_called_once_with(doc=str(self.path), peer_id=123)
+            sleep.assert_not_called()
+
+    def test_other_upload_errors_still_retry(self):
+        with patch.object(bot.upload, "photo_messages", side_effect=[
+            RuntimeError("temporary failure"), [{"owner_id": 1, "id": 2}],
+        ]) as photo, patch.object(bot.time, "sleep") as sleep:
+            self.assertEqual("photo1_2", bot.upload_photo(self.path, 123))
+            self.assertEqual(2, photo.call_count)
+            self.assertEqual(photo.call_args_list[0], photo.call_args_list[1])
+            sleep.assert_called_once_with(0.6)
