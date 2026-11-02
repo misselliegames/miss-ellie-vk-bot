@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -27,7 +28,9 @@ class BotFlowTests(unittest.TestCase):
             "attachment": attachment,
             "random_id": random_id,
         }) or 1
-        bot.upload_photo = lambda _path: "photo1_1"
+        image_upload_patch = patch.object(bot, "upload_photo", lambda _path, _peer_id: "photo1_1")
+        image_upload_patch.start()
+        self.addCleanup(image_upload_patch.stop)
         bot.generate_parent_report = lambda _user_id, summary: f"REPORT {summary['route']}"
         bot.build_trial_lesson_link = lambda _emeralds: "https://example.com/trial"
 

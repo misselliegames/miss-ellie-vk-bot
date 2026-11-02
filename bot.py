@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import threading
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -14,6 +15,7 @@ import requests
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from PIL import Image
+from image_upload import MessagePhotoUpload, log_upload_error
 
 from diagnostics import build_summary as diagnostic_build_summary
 from question_sets import QUESTION_ASSET_SUBDIRS, QUESTION_SETS, questions_for_route
@@ -186,7 +188,7 @@ def resolve_group_id(explicit: str) -> int:
     raise RuntimeError("Could not determine VK group id from the community token; set VK_GROUP_ID manually")
 
 VK_GROUP_ID_INT = resolve_group_id(VK_GROUP_ID)
-upload = vk_api.VkUpload(vk_session)
+upload = MessagePhotoUpload(vk_session, secrets=(VK_TOKEN,))
 longpoll = VkBotLongPoll(vk_session, VK_GROUP_ID_INT)
 
 SESSION_STORE = SessionStore(SESSION_DB_PATH)
@@ -374,14 +376,45 @@ def link_section_keyboard(label, url):
     return kb
 
 
-def upload_photo(path: Path):
-    key = str(path.resolve())
+def upload_photo(path: Path, peer_id):
+    key = (str(path.resolve()), peer_id)
     if key in PHOTO_CACHE:
         return PHOTO_CACHE[key]
-    photo = retry_call(lambda: upload.photo_messages(photos=str(path)))[0]
-    attachment = f"photo{photo['owner_id']}_{photo['id']}"
+    try:
+        item = _upload_photo_formats(path, peer_id)
+        kind = "photo"
+    except Exception:
+        # A community token can upload a message document for this same peer.
+        # Keep the original image intact when photo processing rejects both formats.
+        result = retry_call(lambda: upload.document_message(doc=str(path), peer_id=peer_id))
+        item = result["doc"]
+        kind = "doc"
+    attachment = f"{kind}{item['owner_id']}_{item['id']}"
+    if item.get("access_key"):
+        attachment += f"_{item['access_key']}"
     PHOTO_CACHE[key] = attachment
     return attachment
+
+
+def _upload_photo_formats(path, peer_id):
+    try:
+        photo = retry_call(lambda: upload.photo_messages(photos=str(path), peer_id=peer_id))[0]
+    except Exception:
+        # VK can reject both PNG and existing JPEG encodings with an empty photo.
+        # Re-encode to a clean JPEG with the existing white-background fallback.
+        with tempfile.TemporaryDirectory(prefix="vk-photo-") as directory:
+            jpg = Path(directory) / "image.jpg"
+            try:
+                with Image.open(path) as source:
+                    rgba = source.convert("RGBA")
+                    rgb = Image.new("RGB", rgba.size, "white")
+                    rgb.paste(rgba, mask=rgba.getchannel("A"))
+                    rgb.save(jpg, "JPEG", quality=92, optimize=True)
+            except Exception as exc:
+                log_upload_error("convert image to JPG", exc, (VK_TOKEN,))
+                raise
+            photo = retry_call(lambda: upload.photo_messages(photos=str(jpg), peer_id=peer_id))[0]
+    return photo
 
 
 def utc_now():
@@ -430,7 +463,7 @@ def send_question(user_id):
             send(user_id, q["world_intro"])
             s["world_intros_sent"].add(q["id"])
         img_path = question_asset_path(s, q)
-        attachment = upload_photo(img_path) if img_path.exists() else None
+        attachment = upload_photo(img_path, user_id) if img_path.exists() else None
         send(user_id, question_text(q, options, len(questions)), keyboard=answer_keyboard(), attachment=attachment)
         s["stage"] = "question"
         persist_session(user_id)
@@ -555,7 +588,7 @@ def finish_shop(user_id):
     out = GENERATED_DIR / f"shop_{uuid.uuid4().hex}.png"
     try:
         compose_shop_scene(SHOP_ASSETS, s["shop_selected"], out)
-        attachment = upload_photo(out)
+        attachment = upload_photo(out, user_id)
         leftover = s["shop_balance"]
         tail = f"\nИ ещё {leftover} 💎 осталось в твоём сундуке!" if leftover else ""
         send(user_id, f"🏡 Готово! Вот что ты собрал(а).{tail}", attachment=attachment)
@@ -822,33 +855,14 @@ def child_intro(user_id):
     s = SESSIONS[user_id]
     s["stage"] = "child_intro_retry"
     try:
-        attachment = upload_photo(TOTOSHKA_INTRO)
-    except Exception as exc:
-        print(f"TOTOSHKA_PNG_UPLOAD_FAILED: {type(exc).__name__}")
-        temp_jpg = GENERATED_DIR / f"totoshka_{uuid.uuid4().hex}.jpg"
-        try:
-            GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-            with Image.open(TOTOSHKA_INTRO) as source:
-                source.load()
-                if source.mode in {"RGBA", "LA"} or "transparency" in source.info:
-                    rgba = source.convert("RGBA")
-                    rgb = Image.new("RGB", rgba.size, "white")
-                    rgb.paste(rgba, mask=rgba.getchannel("A"))
-                else:
-                    rgb = source.convert("RGB")
-                rgb.save(temp_jpg, "JPEG", quality=92, optimize=True)
-            attachment = upload_photo(temp_jpg)
-        except Exception as fallback_exc:
-            print(f"TOTOSHKA_JPG_UPLOAD_FAILED: {type(fallback_exc).__name__}")
-            send(
-                user_id,
-                "🐾 Тотошка на секунду потерялся! Нажми «Попробовать ещё раз».",
-                keyboard=test_step_keyboard("Попробовать ещё раз", VkKeyboardColor.PRIMARY),
-            )
-            return
-        finally:
-            if temp_jpg.exists():
-                temp_jpg.unlink()
+        attachment = upload_photo(TOTOSHKA_INTRO, user_id)
+    except Exception:
+        send(
+            user_id,
+            "🐾 Тотошка на секунду потерялся! Нажми «Попробовать ещё раз».",
+            keyboard=test_step_keyboard("Попробовать ещё раз", VkKeyboardColor.PRIMARY),
+        )
+        return
     send(user_id,
          "Привет! 🐾\n\n"
          "Злая колдунья заколдовала дорогу из жёлтых кирпичей, и Тотошка не может найти дорогу в Изумрудный Город к Элли.\n\n"
