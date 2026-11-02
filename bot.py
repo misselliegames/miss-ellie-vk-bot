@@ -15,7 +15,7 @@ import requests
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from PIL import Image
-from image_upload import EmptyPhotoUpload, MessagePhotoUpload, log_upload_error
+from image_upload import MessagePhotoUpload, log_upload_error
 
 from diagnostics import build_summary as diagnostic_build_summary
 from question_sets import QUESTION_ASSET_SUBDIRS, QUESTION_SETS, questions_for_route
@@ -236,14 +236,12 @@ def question_asset_path(session, question):
     return QUESTION_ASSETS / subdir / question["image"] if subdir else QUESTION_ASSETS / question["image"]
 
 
-def retry_call(action, attempts=3, non_retryable=()):
+def retry_call(action, attempts=3):
     last_error = None
     for attempt in range(attempts):
         try:
             return action()
         except Exception as exc:
-            if isinstance(exc, non_retryable):
-                raise
             last_error = exc
             if attempt + 1 < attempts:
                 time.sleep(0.6 * (attempt + 1))
@@ -400,10 +398,7 @@ def upload_photo(path: Path, peer_id):
 
 def _upload_photo_formats(path, peer_id):
     try:
-        photo = retry_call(
-            lambda: upload.photo_messages(photos=str(path), peer_id=peer_id),
-            non_retryable=(EmptyPhotoUpload,),
-        )[0]
+        photo = retry_call(lambda: upload.photo_messages(photos=str(path), peer_id=peer_id))[0]
     except Exception:
         # VK can reject both PNG and existing JPEG encodings with an empty photo.
         # Re-encode to a clean JPEG with the existing white-background fallback.
@@ -418,10 +413,7 @@ def _upload_photo_formats(path, peer_id):
             except Exception as exc:
                 log_upload_error("convert image to JPG", exc, (VK_TOKEN,))
                 raise
-            photo = retry_call(
-                lambda: upload.photo_messages(photos=str(jpg), peer_id=peer_id),
-                non_retryable=(EmptyPhotoUpload,),
-            )[0]
+            photo = retry_call(lambda: upload.photo_messages(photos=str(jpg), peer_id=peer_id))[0]
     return photo
 
 

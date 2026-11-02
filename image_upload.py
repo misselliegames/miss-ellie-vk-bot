@@ -4,10 +4,6 @@ import re
 import vk_api
 
 
-class EmptyPhotoUpload(ValueError):
-    """VK accepted the POST but rejected the image; try the next format."""
-
-
 def log_upload_error(stage, exc, secrets=()):
     # ApiError.__str__ may include request data. Only use its error message.
     error = getattr(exc, "error", None)
@@ -45,7 +41,7 @@ class MessagePhotoUpload(vk_api.VkUpload):
             response.raise_for_status()
             payload = response.json()
             if not payload.get("photo") or payload["photo"] == "[]":
-                raise EmptyPhotoUpload("VK upload returned empty photo (HTTP POST succeeded)")
+                raise ValueError("VK upload returned empty photo (HTTP POST succeeded)")
             stage = "saveMessagesPhoto"
             result = self.vk.photos.saveMessagesPhoto(**payload)
             if not result:
